@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: rcapex
+    env: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    buildCommand: |
+      # Install server deps
+      npm ci
+      # Build client
+      cd ../client && npm ci && npm run build
+      # Back to server
+      cd ../server
+    startCommand: node src/server.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Server port is provided by Render in $PORT automatically
+      # Add your runtime secrets below or via Render dashboard
+      - key: APEX_BASE
+        sync: false
+      - key: APEX_USERNAME
+        sync: false
+      - key: APEX_PASSWORD
+        sync: false
+      - key: DEFAULT_UNIT
+        value: h0zDeGnQIgfY3px
+      - key: DEFAULT_DATUM_VON
+        value: 2024-10-01T00:00:00Z
+      - key: DEFAULT_DATUM_BIS
+        value: 2025-05-30T00:00:00Z
+      - key: UNIT_EXT_IDS
+        value: zaE22GlNK6AZfBc,YytRDIbdYtOVax8,VUmfO9SS3wXt2iB,h0zDeGnQIgfY3px,YtK84kUP26b7bMw,eQnsTZhPu8GPFUm
+      - key: O365_TENANT_ID
+        sync: false
+      - key: O365_CLIENT_ID
+        sync: false
+      - key: O365_CLIENT_SECRET
+        sync: false
+      - key: O365_SENDER_UPN
+        sync: false
+      - key: O365_DEFAULT_RECIPIENT
+        sync: false
+      - key: DEBUG_MAIL
+        value: "0"
