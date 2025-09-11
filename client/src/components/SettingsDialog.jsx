@@ -133,7 +133,7 @@ export default function SettingsDialog({ onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e)=>e.stopPropagation()} style={{ maxWidth: 700 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <h3 style={{ margin:0 }}>Einstellungen · E-Mail (O365)</h3>
+          <h3 style={{ margin:0 }}>Einstellungen</h3>
           <div style={{ flex:1 }} />
           <button className="btn" onClick={onClose}>Schließen</button>
         </div>
