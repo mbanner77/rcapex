@@ -333,15 +333,16 @@ app.get('/api/umsatzliste', async (req, res) => {
 
 // In production, serve built client
 if (process.env.NODE_ENV === 'production') {
-  import('path').then(({ default: path }) => {
-    import('url').then(({ fileURLToPath }) => {
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = path.dirname(__filename);
-      const clientDist = path.resolve(__dirname, '../../client/dist');
-      app.use(express.static(clientDist));
-      app.get('*', (_, res) => {
-        res.sendFile(path.join(clientDist, 'index.html'));
-      });
+  Promise.all([import('path'), import('url'), import('fs')]).then(([{ default: path }, { fileURLToPath }, fsMod]) => {
+    const fs = fsMod.default || fsMod
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const primary = path.resolve(__dirname, '../client-dist');
+    const fallback = path.resolve(__dirname, '../../client/dist');
+    const serveDir = fs.existsSync(primary) ? primary : fallback;
+    app.use(express.static(serveDir));
+    app.get('*', (_, res) => {
+      res.sendFile(path.join(serveDir, 'index.html'));
     });
   });
 }
