@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { getMailSettings, updateMailSettings, sendMailTest } from '../lib/api'
+import { getMailSettings, updateMailSettings, sendMailTest, getApexSettings, updateApexSettings, testApex } from '../lib/api'
 
 const USER_DEFAULTS = {
   senderUpn: 'techhub@realcore.de',
@@ -10,10 +10,18 @@ export default function SettingsDialog({ onClose }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [savingApex, setSavingApex] = useState(false)
+  const [testingApex, setTestingApex] = useState(false)
   const [error, setError] = useState('')
   const [okMsg, setOkMsg] = useState('')
+  const [apexMsg, setApexMsg] = useState('')
 
   const [form, setForm] = useState({
+    // APEX
+    apexUsername: '',
+    apexPassword: '',
+    apexSource: '',
+    // Mail
     tenantId: '',
     clientId: '',
     clientSecret: '',
@@ -28,14 +36,19 @@ export default function SettingsDialog({ onClose }) {
       setLoading(true)
       setError('')
       try {
-        const s = await getMailSettings()
+        const [mail, apex] = await Promise.all([getMailSettings(), getApexSettings()])
         if (!cancelled) setForm((prev) => ({
-          tenantId: s?.tenantId || '',
-          clientId: s?.clientId || '',
+          // APEX
+          apexUsername: apex?.username || '',
+          apexPassword: '', // never prefill
+          apexSource: apex?.source || '',
+          // Mail
+          tenantId: mail?.tenantId || '',
+          clientId: mail?.clientId || '',
           clientSecret: '', // never prefill; user must type to change
-          senderUpn: s?.senderUpn || USER_DEFAULTS.senderUpn,
-          defaultRecipient: s?.defaultRecipient || USER_DEFAULTS.defaultRecipient,
-          testTo: s?.defaultRecipient || USER_DEFAULTS.defaultRecipient,
+          senderUpn: mail?.senderUpn || USER_DEFAULTS.senderUpn,
+          defaultRecipient: mail?.defaultRecipient || USER_DEFAULTS.defaultRecipient,
+          testTo: mail?.defaultRecipient || USER_DEFAULTS.defaultRecipient,
         }))
       } catch (e) {
         if (!cancelled) setError(e?.response?.data?.message || e.message)
@@ -70,6 +83,38 @@ export default function SettingsDialog({ onClose }) {
     }
   }
 
+  async function saveApex() {
+    setSavingApex(true)
+    setError('')
+    setApexMsg('')
+    try {
+      const payload = { username: form.apexUsername }
+      if ((form.apexPassword || '').trim()) payload.password = form.apexPassword
+      await updateApexSettings(payload)
+      setApexMsg('APEX Zugang gespeichert')
+      // clear password field after save
+      setForm(f => ({ ...f, apexPassword: '' }))
+    } catch (e) {
+      setError(e?.response?.data?.message || e.message)
+    } finally {
+      setSavingApex(false)
+    }
+  }
+
+  async function testApexConn() {
+    setTestingApex(true)
+    setError('')
+    setApexMsg('')
+    try {
+      const r = await testApex()
+      setApexMsg(`APEX Test OK (Status ${r?.status || '200'})`)
+    } catch (e) {
+      setError(e?.response?.data?.message || e.message)
+    } finally {
+      setTestingApex(false)
+    }
+  }
+
   async function test() {
     setTesting(true)
     setError('')
@@ -96,6 +141,28 @@ export default function SettingsDialog({ onClose }) {
           <div style={{ padding: 12 }}>Lade…</div>
         ) : (
           <div style={{ marginTop: 12, display:'grid', gap:12 }}>
+            {/* APEX Credentials */}
+            <div className="panel" style={{ padding: 12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <h4 style={{ margin:0 }}>APEX Zugang</h4>
+                <small style={{ color:'var(--muted)' }}>Quelle: {form.apexSource || 'unset'}</small>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                <Labeled label="Benutzername">
+                  <input className="input" value={form.apexUsername} onChange={(e)=>update('apexUsername', e.target.value)} placeholder="APEX User" />
+                </Labeled>
+                <Labeled label="Passwort (neu setzen)">
+                  <input className="input" type="password" value={form.apexPassword} onChange={(e)=>update('apexPassword', e.target.value)} placeholder="••••••••" />
+                </Labeled>
+              </div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <button className="btn" onClick={saveApex} disabled={savingApex}>{savingApex? 'Speichere…' : 'APEX speichern'}</button>
+                <div style={{ flex:1 }} />
+                <button className="btn" onClick={testApexConn} disabled={testingApex}>{testingApex? 'Teste…' : 'APEX Test'}</button>
+              </div>
+              {apexMsg && <div style={{ color:'var(--muted)', marginTop:8 }}>{apexMsg}</div>}
+            </div>
+
             <div className="panel" style={{ padding: 12 }}>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                 <Labeled label="Tenant ID">
