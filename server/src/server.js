@@ -31,6 +31,8 @@ app.use(session({
 const APEX_BASE = process.env.APEX_BASE || 'https://apex.realcore.group:8443/ords/realcore/controlling';
 const APEX_USERNAME = process.env.APEX_USERNAME || '';
 const APEX_PASSWORD = process.env.APEX_PASSWORD || '';
+// In-memory overrides editable via API
+const APEX_OVERRIDES = { username: '', password: '' };
 
 const DEFAULT_UNIT = process.env.DEFAULT_UNIT || 'h0zDeGnQIgfY3px';
 const DEFAULT_DATUM_VON = process.env.DEFAULT_DATUM_VON || '2024-10-01T00:00:00Z';
@@ -126,9 +128,9 @@ if (!APEX_USERNAME || !APEX_PASSWORD) {
 }
 
 function authHeader(req) {
-  // Prefer session credentials if provided via login; fall back to env
-  const u = req?.session?.apexUser || APEX_USERNAME;
-  const p = req?.session?.apexPass || APEX_PASSWORD;
+  // Prefer API overrides, then session credentials, then env
+  const u = (APEX_OVERRIDES.username || req?.session?.apexUser || APEX_USERNAME);
+  const p = (APEX_OVERRIDES.password || req?.session?.apexPass || APEX_PASSWORD);
   if (!u || !p) return {};
   const token = Buffer.from(`${u}:${p}`).toString('base64');
   return { Authorization: `Basic ${token}` };
@@ -231,6 +233,38 @@ app.post('/api/mail/test', async (req, res) => {
     res.status(status).json({ error: true, status, message: errMessage(e) });
   }
 });
+
+// --- APEX credential settings ---
+app.get('/api/apex/settings', (req, res) => {
+  res.json({
+    username: APEX_OVERRIDES.username || APEX_USERNAME || '',
+    password: (APEX_OVERRIDES.password || APEX_PASSWORD) ? '********' : '',
+    source: APEX_OVERRIDES.username ? 'override' : (APEX_USERNAME ? 'env' : 'unset'),
+  })
+})
+
+app.post('/api/apex/settings', (req, res) => {
+  const { username, password } = req.body || {}
+  if (typeof username === 'string') APEX_OVERRIDES.username = username
+  if (typeof password === 'string' && password.trim()) APEX_OVERRIDES.password = password
+  // Clear session creds to avoid confusion
+  if (req.session) { req.session.apexUser = undefined; req.session.apexPass = undefined }
+  res.json({ ok: true })
+})
+
+app.post('/api/apex/test', async (req, res) => {
+  try {
+    const headers = buildHeaders(req, { datum_von: DEFAULT_DATUM_VON, datum_bis: DEFAULT_DATUM_BIS });
+    const url = `${APEX_BASE}/zeiten/?limit=1`;
+    const r = await axios.get(url, { headers });
+    return res.json({ ok: true, status: r.status })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    let message = e.response?.data || e.message;
+    if (isHtmlPayload(message)) message = `Upstream error (${status}).`;
+    return res.status(status).json({ error: true, status, message })
+  }
+})
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => {

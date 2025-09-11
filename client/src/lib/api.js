@@ -75,3 +75,19 @@ export async function sendMailTest(to) {
   const res = await axios.post('/api/mail/test', { to })
   return res.data
 }
+
+// --- APEX settings API ---
+export async function getApexSettings() {
+  const res = await axios.get('/api/apex/settings')
+  return res.data
+}
+
+export async function updateApexSettings(payload) {
+  const res = await axios.post('/api/apex/settings', payload)
+  return res.data
+}
+
+export async function testApex() {
+  const res = await axios.post('/api/apex/test')
+  return res.data
+}

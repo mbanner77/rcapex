@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "src/server.js",
+  "engines": {
+    "node": "^20"
+  },
   "scripts": {
     "dev": "node src/server.js",
     "start": "NODE_ENV=production node src/server.js"
