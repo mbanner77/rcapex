@@ -1,19 +1,22 @@
 services:
   - type: web
     name: rcapex
-    env: node
+    runtime: node
     plan: free
     region: frankfurt
     rootDir: server
     buildCommand: |
       # Install server deps
       npm ci
-      # Build client
-      cd ../client && npm ci && npm run build
+      # Build client (include dev deps so vite is available)
+      cd ../client && npm ci --include=dev && npm run build
+      # Copy client build into server/client-dist for production serving
+      mkdir -p ../server/client-dist && rm -rf ../server/client-dist/* && cp -r dist/* ../server/client-dist/
       # Back to server
       cd ../server
     startCommand: node src/server.js
     autoDeploy: true
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
