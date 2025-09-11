@@ -374,6 +374,7 @@ if (process.env.NODE_ENV === 'production') {
     const primary = path.resolve(__dirname, '../client-dist');
     const fallback = path.resolve(__dirname, '../../client/dist');
     const serveDir = fs.existsSync(primary) ? primary : fallback;
+    console.log('[SERVER] Serving client from:', serveDir);
     app.use(express.static(serveDir));
     app.get('*', (_, res) => {
       res.sendFile(path.join(serveDir, 'index.html'));
