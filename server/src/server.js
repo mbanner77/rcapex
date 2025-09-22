@@ -74,6 +74,22 @@ async function savePersistedApex() {
     const configDir = path.resolve(__dirname, '../data')
     const configPath = path.join(configDir, 'config.json')
     if (!fs.existsSync(configDir)) await fsn.mkdir(configDir, { recursive: true })
+    // write merged config (APEX + SMTP) to disk
+    let existing = {}
+    try { existing = JSON.parse(await fsn.readFile(configPath, 'utf8')) } catch (_) { existing = {} }
+    existing.apex = { username: APEX_OVERRIDES.username || '', password: APEX_OVERRIDES.password || '' }
+    existing.smtp = {
+      host: SMTP_CONFIG.host,
+      port: SMTP_CONFIG.port,
+      secure: SMTP_CONFIG.secure,
+      user: SMTP_CONFIG.user,
+      pass: SMTP_CONFIG.pass || '',
+      defaultRecipient: SMTP_CONFIG.defaultRecipient || '',
+      from: SMTP_CONFIG.from || ''
+    }
+    await fsn.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf8')
+  } catch (_) { /* ignore */ }
+}
 
 // ---------------- Reports / Scheduling ----------------
 
@@ -247,22 +263,6 @@ app.post('/api/reports/run', async (req, res) => {
     res.status(status).json({ error: true, status, message: errMessage(e) });
   }
 })
-    let existing = {}
-    try { existing = JSON.parse(await fsn.readFile(configPath, 'utf8')) } catch (_) { existing = {} }
-    existing.apex = { username: APEX_OVERRIDES.username || '', password: APEX_OVERRIDES.password || '' }
-    // persist SMTP as well
-    existing.smtp = {
-      host: SMTP_CONFIG.host,
-      port: SMTP_CONFIG.port,
-      secure: SMTP_CONFIG.secure,
-      user: SMTP_CONFIG.user,
-      pass: SMTP_CONFIG.pass || '',
-      defaultRecipient: SMTP_CONFIG.defaultRecipient || '',
-      from: SMTP_CONFIG.from || ''
-    }
-    await fsn.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf8')
-  } catch (_) { /* ignore */ }
-}
 
 // kick off load (best-effort); merge with env defaults
 loadPersistedApex();
