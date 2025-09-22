@@ -66,11 +66,7 @@ async function loadPersistedApex() {
   } catch (_) { /* ignore */ }
 }
 
-// Generate CSV attachment (UTF-8)
-async function generateCsv({ type, unit, datum_von, datum_bis }){
-  const baseHeaders = buildHeaders({}, { datum_von, datum_bis })
-
-// Preview via GET with query params (simpler for window.open)
+// GET preview (easier for window.open)
 app.get('/api/reports/preview', async (req, res) => {
   try {
     const report = req.query.report || 'stunden'
@@ -90,7 +86,7 @@ app.get('/api/reports/preview', async (req, res) => {
   }
 })
 
-// Preview via GET for a saved schedule id
+// GET preview by schedule id
 app.get('/api/reports/preview/:scheduleId', async (req, res) => {
   try {
     const id = req.params.scheduleId
@@ -111,17 +107,21 @@ app.get('/api/reports/preview/:scheduleId', async (req, res) => {
   }
 })
 
-// Simple HTML page that embeds the PDF for browsers that struggle with direct PDF rendering
+// HTML wrapper page to embed the PDF (for Safari constraints)
 app.get('/api/reports/preview-page', (req, res) => {
   const report = encodeURIComponent(req.query.report || 'stunden')
   const unit = encodeURIComponent(req.query.unit || 'ALL')
   const rangePreset = encodeURIComponent(req.query.rangePreset || 'last_month')
   const download = encodeURIComponent(req.query.download || '')
   const apiUrl = `/api/reports/preview?report=${report}&unit=${unit}&rangePreset=${rangePreset}${download?`&download=${download}`:''}`
-  const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Report Vorschau</title><style>html,body{height:100%;margin:0} .toolbar{padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8;align-items:center} iframe{border:0;width:100%;height:calc(100% - 42px)}</style></head><body><div class="toolbar"><a href="${apiUrl}&download=1">Download</a></div><iframe src="${apiUrl}" title="Report"></iframe></body></html>`
+  const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Report Vorschau</title><style>html,body{height:100%;margin:0} .toolbar{padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8;align-items:center} iframe{border:0;width:100%;height:calc(100% - 42px)}</style></head><body><div class=\"toolbar\"><a href=\"${apiUrl}&download=1\">Download</a></div><iframe src=\"${apiUrl}\" title=\"Report\"></iframe></body></html>`
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.send(html)
 })
+
+// Generate CSV attachment (UTF-8)
+async function generateCsv({ type, unit, datum_von, datum_bis }){
+  const baseHeaders = buildHeaders({}, { datum_von, datum_bis })
   const isAll = !unit || unit === 'ALL'
   let items = []
   if (isAll) {
