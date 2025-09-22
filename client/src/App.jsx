@@ -15,6 +15,7 @@ import { exportCustomersCsv, exportProjectsCsv } from './lib/export'
 import Login from './components/Login.jsx'
 import PasswordGate from './components/PasswordGate.jsx'
 import SettingsDialog from './components/SettingsDialog.jsx'
+import ReportSchedules from './components/ReportSchedules.jsx'
 
 function getPrevMonthRange() {
   const now = new Date()
@@ -40,6 +41,7 @@ export default function App() {
   const [stundenRaw, setStundenRaw] = useState(null)
   const [umsatzRaw, setUmsatzRaw] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showSchedules, setShowSchedules] = useState(false)
 
   // Check session on load
   useEffect(() => {
@@ -127,6 +129,7 @@ export default function App() {
         <h1>Realcore Controlling Dashboard</h1>
         <div className="spacer" />
         <div className="userinfo">Angemeldet{auth.username ? `: ${auth.username}` : ''}</div>
+        <button className="btn" style={{ marginRight: 8 }} onClick={() => setShowSchedules(true)}>Report-Zeitpläne</button>
         <button className="btn" style={{ marginRight: 8 }} onClick={() => setShowSettings(true)}>Einstellungen</button>
         <button className="btn" onClick={async () => { await logout(); setAuth({ checked: true, loggedIn: false, username: null }) }}>Logout</button>
       </div>
@@ -190,6 +193,7 @@ export default function App() {
         </div>
       </div>
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+      {showSchedules && <ReportSchedules onClose={() => setShowSchedules(false)} />}
     </div>
   )
 }

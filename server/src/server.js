@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import axios from 'axios';
 import session from 'express-session';
 import nodemailer from 'nodemailer';
+import PDFDocument from 'pdfkit';
 
 dotenv.config();
 
@@ -73,6 +74,179 @@ async function savePersistedApex() {
     const configDir = path.resolve(__dirname, '../data')
     const configPath = path.join(configDir, 'config.json')
     if (!fs.existsSync(configDir)) await fsn.mkdir(configDir, { recursive: true })
+
+// ---------------- Reports / Scheduling ----------------
+
+// In-memory schedules with persistence in server/data/config.json under key 'schedules'
+const SCHEDULES = []
+
+async function loadSchedules() {
+  try {
+    const [{ default: path }, fs] = await Promise.all([import('path'), import('fs/promises')])
+    const { fileURLToPath } = await import('url')
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = path.dirname(__filename)
+    const configPath = path.resolve(__dirname, '../data/config.json')
+    let raw
+    try { raw = await fs.readFile(configPath, 'utf8') } catch (_) { return }
+    const json = JSON.parse(raw || '{}')
+    const arr = Array.isArray(json?.schedules) ? json.schedules : []
+    SCHEDULES.splice(0, SCHEDULES.length, ...arr)
+  } catch (_) { /* ignore */ }
+}
+
+async function saveSchedules() {
+  try {
+    const [{ default: path }, fs, fsn] = await Promise.all([import('path'), import('fs'), import('fs/promises')])
+    const { fileURLToPath } = await import('url')
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = path.dirname(__filename)
+    const configDir = path.resolve(__dirname, '../data')
+    const configPath = path.join(configDir, 'config.json')
+    if (!fs.existsSync(configDir)) await fsn.mkdir(configDir, { recursive: true })
+    let existing = {}
+    try { existing = JSON.parse(await fsn.readFile(configPath, 'utf8')) } catch (_) { existing = {} }
+    existing.schedules = SCHEDULES
+    await fsn.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf8')
+  } catch (_) { /* ignore */ }
+}
+
+// Helper: compute date range by preset
+function computeRange(preset) {
+  const now = new Date()
+  const toIso = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds())).toISOString().slice(0,19)+'Z'
+  if (preset === 'last_week') {
+    // last calendar week Mon-Sun relative to UTC
+    const day = now.getUTCDay() || 7
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day, 23, 59, 59))
+    const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() - 6, 0, 0, 0))
+    return { datum_von: toIso(start), datum_bis: toIso(end) }
+  }
+  // default last month
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0))
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59))
+  return { datum_von: toIso(start), datum_bis: toIso(end) }
+}
+
+// Generate PDF buffer for a report
+async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
+  const headers = buildHeaders({}, { datum_von, datum_bis, unit })
+  const sp = new URLSearchParams({ datum_von, datum_bis })
+  if (unit && unit !== 'ALL') sp.set('unit', unit)
+  const url = `${APEX_BASE}/${type === 'umsatzliste' ? 'umsatzliste' : 'zeiten'}${sp.toString() ? `?${sp.toString()}` : ''}`
+  const r = await axios.get(url, { headers })
+  const items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
+  // Build simple PDF
+  const doc = new PDFDocument({ margin: 32 })
+  const chunks = []
+  doc.on('data', c => chunks.push(c))
+  const title = type === 'umsatzliste' ? 'Umsatzliste' : 'Stunden'
+  doc.fontSize(18).text(`Report: ${title}`, { continued: false })
+  doc.moveDown(0.5)
+  doc.fontSize(12).text(`Zeitraum: ${datum_von} – ${datum_bis}`)
+  doc.text(`Unit: ${unit || 'ALL'}`)
+  doc.moveDown()
+  doc.fontSize(12).text(`Anzahl Datensätze: ${items.length}`)
+  doc.moveDown()
+  // print first rows
+  const maxRows = Math.min(items.length, 30)
+  for (let i=0; i<maxRows; i++) {
+    const row = items[i]
+    const line = type === 'umsatzliste'
+      ? `${i+1}. Kunde: ${row?.KUNDE || row?.kunde || '-'} | Projekt: ${row?.PROJEKT || row?.projekt || '-'} | Umsatz: ${row?.UMSATZ || row?.umsatz || '-'}`
+      : `${i+1}. Mitarbeiter: ${row?.MITARBEITER || row?.mitarbeiter || '-'} | Kunde: ${row?.KUNDE || row?.kunde || '-'} | Std: ${row?.STUNDEN || row?.stunden || '-'}`
+    doc.fontSize(10).text(line)
+  }
+  if (items.length > maxRows) {
+    doc.moveDown().fontSize(10).text(`… (${items.length - maxRows} weitere Zeilen)`)
+  }
+  doc.end()
+  await new Promise(res => doc.on('end', res))
+  return Buffer.concat(chunks)
+}
+
+// Run a schedule once
+async function runSchedule(s) {
+  const { rangePreset = 'last_month', unit = 'ALL', report = 'stunden', recipients = [] } = s || {}
+  const range = computeRange(rangePreset)
+  const pdf = await generateReportPdf({ type: report === 'umsatzliste' ? 'umsatzliste' : 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+  const subject = `Report ${report} · ${unit || 'ALL'} · ${range.datum_von.slice(0,10)} – ${range.datum_bis.slice(0,10)}`
+  await sendSmtpMail({ to: recipients, subject, text: 'Siehe Anhang.', attachments: [{ filename: `report_${report}.pdf`, content: pdf }] })
+}
+
+// Simple ticker: check every 60s
+let tickerStarted = false
+function startTicker(){
+  if (tickerStarted) return; tickerStarted = true
+  setInterval(() => {
+    const now = new Date()
+    for (const s of SCHEDULES) {
+      if (!s?.active) continue
+      try {
+        const at = (s.at || '06:00').split(':').map(n => parseInt(n,10))
+        const hour = at[0]||6, minute = at[1]||0
+        if (s.frequency === 'daily') {
+          if (now.getUTCHours() === hour && now.getUTCMinutes() === minute) runSchedule(s).catch(()=>{})
+        } else if (s.frequency === 'weekly') {
+          // weekdays: [1..7] (Mon..Sun), compare UTC day (0..6, Sunday=0)
+          const wd = now.getUTCDay() || 7
+          const list = Array.isArray(s.weekdays) ? s.weekdays : [1]
+          if (list.includes(wd) && now.getUTCHours() === hour && now.getUTCMinutes() === minute) runSchedule(s).catch(()=>{})
+        } else if (s.frequency === 'monthly') {
+          const day = Math.max(1, Math.min(28, Number(s.dayOfMonth||1)))
+          if (now.getUTCDate() === day && now.getUTCHours() === hour && now.getUTCMinutes() === minute) runSchedule(s).catch(()=>{})
+        }
+      } catch (_) { /* ignore one schedule */ }
+    }
+  }, 60000)
+}
+
+// API: schedules CRUD and run
+app.get('/api/reports/schedules', (req, res) => {
+  res.json({ items: SCHEDULES })
+})
+
+app.post('/api/reports/schedules', (req, res) => {
+  const s = req.body || {}
+  if (!Array.isArray(s.recipients) || s.recipients.length === 0) return res.status(400).json({ error: true, message: 'recipients required' })
+  s.id = s.id || Math.random().toString(36).slice(2)
+  const idx = SCHEDULES.findIndex(x => x.id === s.id)
+  if (idx >= 0) SCHEDULES[idx] = s; else SCHEDULES.push(s)
+  saveSchedules().finally(()=>{})
+  res.json({ ok: true, id: s.id })
+})
+
+app.delete('/api/reports/schedules/:id', (req, res) => {
+  const id = req.params.id
+  const idx = SCHEDULES.findIndex(x => x.id === id)
+  if (idx >= 0) SCHEDULES.splice(idx,1)
+  saveSchedules().finally(()=>{})
+  res.json({ ok: true })
+})
+
+app.post('/api/reports/run', async (req, res) => {
+  try {
+    const { scheduleId, report, unit, rangePreset, to } = req.body || {}
+    if (scheduleId) {
+      const s = SCHEDULES.find(x => x.id === scheduleId)
+      if (!s) return res.status(404).json({ error: true, message: 'schedule not found' })
+      await runSchedule(s)
+      return res.json({ ok: true })
+    }
+    // ad-hoc
+    const recipients = Array.isArray(to) ? to : (to ? [to] : [])
+    if (recipients.length === 0) return res.status(400).json({ error: true, message: 'to required' })
+    const preset = rangePreset || 'last_month'
+    const range = computeRange(preset)
+    const pdf = await generateReportPdf({ type: report === 'umsatzliste' ? 'umsatzliste' : 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const subject = `Report ${report || 'stunden'} · ${unit || 'ALL'} · ${range.datum_von.slice(0,10)} – ${range.datum_bis.slice(0,10)}`
+    await sendSmtpMail({ to: recipients, subject, text: 'Siehe Anhang.', attachments: [{ filename: `report_${report||'stunden'}.pdf`, content: pdf }] })
+    res.json({ ok: true })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
     let existing = {}
     try { existing = JSON.parse(await fsn.readFile(configPath, 'utf8')) } catch (_) { existing = {} }
     existing.apex = { username: APEX_OVERRIDES.username || '', password: APEX_OVERRIDES.password || '' }
@@ -92,6 +266,7 @@ async function savePersistedApex() {
 
 // kick off load (best-effort); merge with env defaults
 loadPersistedApex();
+loadSchedules();
 
 const DEFAULT_UNIT = process.env.DEFAULT_UNIT || 'h0zDeGnQIgfY3px';
 const DEFAULT_DATUM_VON = process.env.DEFAULT_DATUM_VON || '2024-10-01T00:00:00Z';
@@ -119,7 +294,7 @@ function errMessage(e) {
 const DEBUG_MAIL = (process.env.DEBUG_MAIL || '').toLowerCase() === '1' || (process.env.DEBUG_MAIL || '').toLowerCase() === 'true'
 function logMail(...args){ if (DEBUG_MAIL) console.log('[MAIL]', ...args) }
 
-async function sendSmtpMail({ to, subject, html, text }) {
+async function sendSmtpMail({ to, subject, html, text, attachments }) {
   const transport = nodemailer.createTransport({
     host: SMTP_CONFIG.host,
     port: SMTP_CONFIG.port,
@@ -129,7 +304,7 @@ async function sendSmtpMail({ to, subject, html, text }) {
   const from = SMTP_CONFIG.from || SMTP_CONFIG.user
   const toList = (Array.isArray(to) ? to : [to]).filter(Boolean)
   logMail('SMTP send', { host: SMTP_CONFIG.host, port: SMTP_CONFIG.port, secure: SMTP_CONFIG.secure, from, to: toList, subject })
-  const resp = await transport.sendMail({ from, to: toList.join(','), subject: subject || 'No subject', html, text })
+  const resp = await transport.sendMail({ from, to: toList.join(','), subject: subject || 'No subject', html, text, attachments })
   logMail('SMTP response', resp?.accepted)
 }
 
@@ -419,4 +594,6 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server listening on 0.0.0.0:${PORT} (accessible via local and external IPs)`);
+  // start scheduler ticker
+  startTicker();
 });

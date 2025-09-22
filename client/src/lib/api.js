@@ -91,3 +91,24 @@ export async function testApex() {
   const res = await axios.post('/api/apex/test')
   return res.data
 }
+
+// --- Report Schedules API ---
+export async function listReportSchedules() {
+  const res = await axios.get('/api/reports/schedules')
+  return res.data
+}
+
+export async function upsertReportSchedule(payload) {
+  const res = await axios.post('/api/reports/schedules', payload)
+  return res.data
+}
+
+export async function deleteReportSchedule(id) {
+  const res = await axios.delete(`/api/reports/schedules/${encodeURIComponent(id)}`)
+  return res.data
+}
+
+export async function runReportNow(payload) {
+  const res = await axios.post('/api/reports/run', payload)
+  return res.data
+}

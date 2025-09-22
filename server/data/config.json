@@ -1,0 +1,15 @@
+{
+  "apex": {
+    "username": "",
+    "password": ""
+  },
+  "smtp": {
+    "host": "smtp.strato.de",
+    "port": 465,
+    "secure": true,
+    "user": "m.banner@futurestore.shop",
+    "pass": "realcore2025",
+    "defaultRecipient": "m.banner@futurestore.shop",
+    "from": "m.banner@futurestore.shop"
+  }
+}
