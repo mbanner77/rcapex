@@ -169,30 +169,120 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
     items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
   }
-  // Build simple PDF
-  const doc = new PDFDocument({ margin: 32 })
+  // Build polished PDF
+  const doc = new PDFDocument({ margin: 36 })
   const chunks = []
   doc.on('data', c => chunks.push(c))
+
+  // Header
   const title = type === 'umsatzliste' ? 'Umsatzliste' : 'Stunden'
-  doc.fontSize(18).text(`Report: ${title}`, { continued: false })
-  doc.moveDown(0.5)
-  doc.fontSize(12).text(`Zeitraum: ${datum_von} – ${datum_bis}`)
-  doc.text(`Unit: ${unit || 'ALL'}`)
-  doc.moveDown()
-  doc.fontSize(12).text(`Anzahl Datensätze: ${items.length}`)
-  doc.moveDown()
-  // print first rows
-  const maxRows = Math.min(items.length, 30)
-  for (let i=0; i<maxRows; i++) {
-    const row = items[i]
-    const line = type === 'umsatzliste'
-      ? `${i+1}. Kunde: ${row?.KUNDE || row?.kunde || '-'} | Projekt: ${row?.PROJEKT || row?.projekt || '-'} | Umsatz: ${row?.UMSATZ || row?.umsatz || '-'}`
-      : `${i+1}. Mitarbeiter: ${row?.MITARBEITER || row?.mitarbeiter || '-'} | Kunde: ${row?.KUNDE || row?.kunde || '-'} | Std: ${row?.STUNDEN || row?.stunden || '-'}`
-    doc.fontSize(10).text(line)
+  doc.fillColor('#111').fontSize(20).text(`Realcore · ${title}`, { align: 'left' })
+  doc.moveDown(0.3)
+  doc.fillColor('#555').fontSize(11).text(`Zeitraum: ${datum_von} – ${datum_bis}`)
+  doc.fillColor('#555').fontSize(11).text(`Unit: ${unit || 'ALL'}  •  Datensätze: ${items.length}`)
+  doc.moveDown(0.8)
+
+  // Footer with page numbers
+  const baseY = doc.y
+  const footer = () => {
+    const range = doc.bufferedPageRange()
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i)
+      const pageNo = i + 1
+      doc.fontSize(9).fillColor('#888')
+      doc.text(`Seite ${pageNo}`, 36, doc.page.height - 28, { width: doc.page.width - 72, align: 'right' })
+    }
   }
-  if (items.length > maxRows) {
-    doc.moveDown().fontSize(10).text(`… (${items.length - maxRows} weitere Zeilen)`)
+
+  // Table renderer
+  function drawTable(columns, rows) {
+    const startX = 36
+    let y = doc.y
+    const rowH = 18
+    const headerBg = '#f1f3f5'
+    const zebra = ['#ffffff', '#fafafa']
+    const border = '#e5e7eb'
+
+    // compute widths
+    const totalWeight = columns.reduce((a,c)=>a+(c.w||1),0)
+    const usableW = doc.page.width - 72
+    const colWidths = columns.map(c => Math.floor(usableW * (c.w||1) / totalWeight))
+
+    // Header
+    doc.save().rect(startX, y, usableW, rowH).fill(headerBg).restore()
+    doc.fontSize(10).fillColor('#111')
+    let x = startX
+    columns.forEach((c, idx) => {
+      doc.text(c.label, x+6, y+5, { width: colWidths[idx]-12, align: c.align||'left' })
+      x += colWidths[idx]
+    })
+    y += rowH
+    // underline
+    doc.moveTo(startX, y).lineTo(startX+usableW, y).strokeColor(border).lineWidth(0.5).stroke()
+
+    // Rows
+    doc.fontSize(10).fillColor('#111')
+    rows.forEach((r, i) => {
+      // page break
+      if (y + rowH > doc.page.height - 54) {
+        doc.addPage(); y = 36
+        // re-draw header on new page
+        doc.save().rect(startX, y, usableW, rowH).fill(headerBg).restore()
+        doc.fontSize(10).fillColor('#111')
+        let hx = startX
+        columns.forEach((c, idx) => { doc.text(c.label, hx+6, y+5, { width: colWidths[idx]-12, align: c.align||'left' }); hx += colWidths[idx] })
+        y += rowH
+        doc.moveTo(startX, y).lineTo(startX+usableW, y).strokeColor(border).lineWidth(0.5).stroke()
+      }
+      // zebra
+      const bg = zebra[i % 2]
+      doc.save().rect(startX, y, usableW, rowH).fill(bg).restore()
+      // cells
+      let cx = startX
+      columns.forEach((c, idx) => {
+        const v = (typeof c.value === 'function') ? c.value(r) : r[c.key]
+        doc.fillColor('#111').text(String(v ?? ''), cx+6, y+4, { width: colWidths[idx]-12, align: c.align||'left' })
+        cx += colWidths[idx]
+      })
+      y += rowH
+    })
+
+    doc.moveDown(0.5)
+    doc.y = y
   }
+
+  // Define columns per report
+  if (type === 'umsatzliste') {
+    const cols = [
+      { label: '#', w: 0.6, value: (_, i) => i+1 },
+      { label: 'Kunde', w: 2, value: (r) => r?.KUNDE ?? r?.kunde ?? '' },
+      { label: 'Projekt', w: 2, value: (r) => r?.PROJEKT ?? r?.projekt ?? '' },
+      { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(r?.UMSATZ ?? r?.umsatz) },
+    ]
+    drawTable(cols, items.map((r, i)=>({ ...r, __index: i })))
+    // totals
+    const sum = items.reduce((a,r)=> a + Number(r?.UMSATZ ?? r?.umsatz ?? 0), 0)
+    doc.moveDown(0.3)
+    doc.fontSize(11).fillColor('#111').text(`Summe Umsatz: ${formatNumber(sum)}`, { align: 'right' })
+  } else {
+    const cols = [
+      { label: '#', w: 0.6, value: (_, i) => i+1 },
+      { label: 'Mitarbeiter', w: 2, value: (r) => r?.MITARBEITER ?? r?.mitarbeiter ?? '' },
+      { label: 'Kunde', w: 2, value: (r) => r?.KUNDE ?? r?.kunde ?? '' },
+      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(r?.STUNDEN ?? r?.stunden) },
+    ]
+    drawTable(cols, items.map((r, i)=>({ ...r, __index: i })))
+    const sum = items.reduce((a,r)=> a + Number(r?.STUNDEN ?? r?.stunden ?? 0), 0)
+    doc.moveDown(0.3)
+    doc.fontSize(11).fillColor('#111').text(`Summe Stunden: ${formatNumber(sum)}`, { align: 'right' })
+  }
+
+  // helpers
+  function formatNumber(n){
+    const num = Number(n||0)
+    return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+  }
+
   doc.end()
   await new Promise(res => doc.on('end', res))
   return Buffer.concat(chunks)
