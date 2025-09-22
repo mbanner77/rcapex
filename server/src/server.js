@@ -313,8 +313,10 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     if (logoUrl) {
       const lr = await axios.get(logoUrl, { responseType: 'arraybuffer' })
       const lb = Buffer.from(lr.data)
-      doc.image(lb, { fit: [120, 40] })
-      doc.moveDown(1.0)
+      // draw logo at current cursor and then advance y by fixed height to avoid overlap
+      const logoH = 40
+      doc.image(lb, { fit: [140, logoH] })
+      doc.y = (doc.y || 36) + logoH + 12
     }
   } catch (_) { /* ignore logo errors */ }
   // Title below logo
@@ -322,15 +324,15 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   doc.moveDown(0.3)
   const fmt = (s)=>{ try { const d=new Date(s); return new Intl.DateTimeFormat('de-DE').format(d) } catch { return s } }
 
-  // Filter out zero rows before rendering
-  function numVal(n){ if (n==null) return 0; if (typeof n==='number') return n; if (typeof n==='string'){ const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v } return Number(n||0) }
-  const dataRows = (()=>{
+  // Compute display value per row and filter out zeros consistently
+  function toNumber(n){ if (n==null) return 0; if (typeof n==='number') return n; if (typeof n==='string'){ const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v } return Number(n||0) }
+  function rowValue(r){
     if (type === 'umsatzliste') {
-      return items.filter(r => numVal(r?.UMSATZ ?? r?.umsatz ?? 0) > 0)
-    } else {
-      return items.filter(r => numVal(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? 0) > 0)
+      return toNumber(r?.UMSATZ ?? r?.umsatz ?? r?.BETRAG ?? r?.betrag ?? r?.SUMME ?? r?.summe ?? r?.NETTO ?? r?.netto ?? r?.WERT ?? r?.wert ?? 0)
     }
-  })()
+    return toNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? r?.ZEIT ?? r?.zeit ?? r?.HOURS ?? r?.hours ?? 0)
+  }
+  const dataRows = items.map(r => ({ ...r, __val: rowValue(r) })).filter(r => r.__val > 0)
 
   doc.fillColor('#555').fontSize(11).text(`Zeitraum: ${fmt(datum_von)} – ${fmt(datum_bis)}`)
   doc.fillColor('#555').fontSize(11).text(`Unit: ${unit || 'ALL'}  •  Datensätze: ${dataRows.length}`)
@@ -436,7 +438,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: '#', w: 0.6, value: (_, i) => (typeof i === 'number' ? i+1 : '') },
       { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde','kunde_name']) },
       { label: 'Projekt', w: 2, value: (r) => pickText(r, ['PROJEKT','projekt','projekt_name']) },
-      { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['UMSATZ','umsatz','BETRAG','betrag','SUMME','summe','NETTO','netto','WERT','wert'])) },
+      { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(r.__val) },
     ]
     // grouped table with subtotals per Kunde
     const groups = groupByKunde(dataRows)
@@ -444,7 +446,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
       drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
-      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['UMSATZ','umsatz','BETRAG','betrag','SUMME','summe','NETTO','netto','WERT','wert']), 0)
+      const gsum = rows.reduce((a,r)=> a + toNumber(r.__val), 0)
       running += gsum
       doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
       doc.moveDown(0.4)
@@ -458,14 +460,14 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: '#', w: 0.6, value: (_, i) => (typeof i === 'number' ? i+1 : '') },
       { label: 'Mitarbeiter', w: 2, value: (r) => pickText(r, ['MITARBEITER','mitarbeiter','name']) },
       { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde']) },
-      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['stunden_gel','stunden_fakt','STD_GELEISTET','STD_FAKTURIERT','std_geleistet','std_fakturiert','STUNDEN','stunden','ZEIT','zeit','HOURS','hours'])) },
+      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(r.__val) },
     ]
     const groups = groupByKunde(items)
     let running = 0
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
       drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
-      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['stunden_gel','stunden_fakt','STD_GELEISTET','STD_FAKTURIERT','std_geleistet','std_fakturiert','STUNDEN','stunden','ZEIT','zeit','HOURS','hours']), 0)
+      const gsum = rows.reduce((a,r)=> a + toNumber(r.__val), 0)
       running += gsum
       doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
       doc.moveDown(0.4)
@@ -505,18 +507,10 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   // Chart page (Top 10 nach Summe)
   try {
     const groups = new Map()
-    if (type === 'umsatzliste') {
-      for (const r of dataRows) {
-        const k = r?.KUNDE ?? r?.kunde ?? '—'
-        const v = parseNumber(r?.UMSATZ ?? r?.umsatz ?? 0)
-        groups.set(k, (groups.get(k)||0) + v)
-      }
-    } else {
-      for (const r of dataRows) {
-        const k = r?.KUNDE ?? r?.kunde ?? '—'
-        const v = parseNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? 0)
-        groups.set(k, (groups.get(k)||0) + v)
-      }
+    for (const r of dataRows) {
+      const k = r?.KUNDE ?? r?.kunde ?? '—'
+      const v = toNumber(r.__val)
+      groups.set(k, (groups.get(k)||0) + v)
     }
     const arr = Array.from(groups.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10)
     if (arr.length > 0) {
