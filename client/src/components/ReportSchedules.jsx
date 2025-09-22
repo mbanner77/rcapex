@@ -243,8 +243,18 @@ export default function ReportSchedules({ onClose }){
                   <input className="input" value={form.at} onChange={(e)=>update('at', e.target.value)} placeholder="06:00" />
                 </Labeled>
                 {form.frequency==='weekly' && (
-                  <Labeled label="Wochentage (1=Mo..7=So, Kommagetrennt)">
-                    <input className="input" value={(form.weekdays||[]).join(',')} onChange={(e)=>update('weekdays', e.target.value.split(',').map(v=>parseInt(v.trim(),10)).filter(n=>!isNaN(n)))} placeholder="1,3,5" />
+                  <Labeled label="Wochentage (UTC)">
+                    <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                      {['Mo','Di','Mi','Do','Fr','Sa','So'].map((lbl, idx) => {
+                        const val = idx+1 // 1..7
+                        const active = (form.weekdays||[]).includes(val)
+                        return (
+                          <button key={val} type="button" className="btn" style={{ padding:'6px 10px', background: active? 'var(--fg)' : 'transparent', color: active? 'var(--bg)' : 'var(--fg)', border:'1px solid var(--border)' }} onClick={()=>{
+                            const set = new Set(form.weekdays||[]); if (active) set.delete(val); else set.add(val); update('weekdays', Array.from(set).sort((a,b)=>a-b))
+                          }}>{lbl}</button>
+                        )
+                      })}
+                    </div>
                   </Labeled>
                 )}
                 {form.frequency==='monthly' && (
@@ -253,17 +263,23 @@ export default function ReportSchedules({ onClose }){
                   </Labeled>
                 )}
                 <Labeled label="Empfänger (Kommagetrennt)">
-                  <input className="input" value={(form.recipients||[]).join(',')} onChange={(e)=>update('recipients', e.target.value.split(',').map(s=>s.trim()).filter(Boolean))} placeholder="a@b.de,c@d.de" />
+                  <div style={{ display:'flex', gap:8 }}>
+                    <input className="input" value={(form.recipients||[]).join(',')} onChange={(e)=>update('recipients', e.target.value.split(',').map(s=>s.trim()).filter(Boolean))} placeholder="a@b.de,c@d.de" />
+                    {!!mailDefaults.defaultRecipient && <button type="button" className="btn" onClick={()=>{
+                      const r = new Set(form.recipients||[]); r.add(mailDefaults.defaultRecipient); update('recipients', Array.from(r))
+                    }}>+ Standard</button>}
+                  </div>
                 </Labeled>
               </div>
               <div style={{ display:'flex', gap:8, marginTop:12 }}>
                 <button className="btn" onClick={save} disabled={saving}>{saving? 'Speichere…' : 'Speichern'}</button>
                 <button className="btn" onClick={runAdhoc}>Ad-hoc senden…</button>
               </div>
-              <div style={{ display:'flex', gap:12, marginTop:8, alignItems:'center' }}>
+              <div style={{ display:'flex', gap:12, marginTop:8, alignItems:'center', flexWrap:'wrap' }}>
                 {error && <div style={{ color:'crimson', whiteSpace:'pre-wrap' }}>Fehler: {String(error)}</div>}
                 {!error && nextRunPreview && <div style={{ color:'var(--muted)' }}>Nächster Lauf (UTC): {nextRunPreview}</div>}
                 {!error && !nextRunPreview && <div style={{ color:'var(--muted)' }}>Nächster Lauf (UTC): n/a</div>}
+                {form.unit==='ALL' && <div style={{ color:'var(--muted)' }}>Hinweis: Bei "ALL" werden die Daten über alle Units aggregiert.</div>}
               </div>
             </div>
             <small style={{ color:'var(--muted)' }}>Zeitpläne werden in <code>server/data/config.json</code> gespeichert und von der Instanz per Minutentakt (UTC) geprüft. Versand erfolgt per SMTP.</small>

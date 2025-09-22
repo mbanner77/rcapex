@@ -146,12 +146,29 @@ function computeRange(preset) {
 
 // Generate PDF buffer for a report
 async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
-  const headers = buildHeaders({}, { datum_von, datum_bis, unit })
-  const sp = new URLSearchParams({ datum_von, datum_bis })
-  if (unit && unit !== 'ALL') sp.set('unit', unit)
-  const url = `${APEX_BASE}/${type === 'umsatzliste' ? 'umsatzliste' : 'zeiten'}${sp.toString() ? `?${sp.toString()}` : ''}`
-  const r = await axios.get(url, { headers })
-  const items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
+  const baseHeaders = buildHeaders({}, { datum_von, datum_bis })
+  const isAll = !unit || unit === 'ALL'
+  let items = []
+  if (isAll) {
+    const units = resolveUnitExtIds()
+    const results = []
+    for (const u of units) {
+      const sp = new URLSearchParams({ datum_von, datum_bis, unit: u })
+      const url = `${APEX_BASE}/${type === 'umsatzliste' ? 'umsatzliste' : 'zeiten'}${sp.toString() ? `?${sp.toString()}` : ''}`
+      const perHeaders = { ...baseHeaders, unit: u }
+      const r = await axios.get(url, { headers: perHeaders })
+      results.push(r.data)
+    }
+    for (const r of results) {
+      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
+      items.push(...arr)
+    }
+  } else {
+    const sp = new URLSearchParams({ datum_von, datum_bis, unit })
+    const url = `${APEX_BASE}/${type === 'umsatzliste' ? 'umsatzliste' : 'zeiten'}${sp.toString() ? `?${sp.toString()}` : ''}`
+    const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
+    items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
+  }
   // Build simple PDF
   const doc = new PDFDocument({ margin: 32 })
   const chunks = []
