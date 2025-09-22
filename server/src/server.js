@@ -6,6 +6,7 @@ import axios from 'axios';
 import session from 'express-session';
 import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
+// Using QuickChart for chart rendering to avoid native dependencies
 
 dotenv.config();
 
@@ -47,6 +48,50 @@ async function loadPersistedApex() {
     // read file if exists
     let raw
     try { raw = await fs.readFile(configPath, 'utf8') } catch (_) { return }
+
+// Generate CSV attachment (UTF-8)
+async function generateCsv({ type, unit, datum_von, datum_bis }){
+  const baseHeaders = buildHeaders({}, { datum_von, datum_bis })
+  const isAll = !unit || unit === 'ALL'
+  let items = []
+  if (isAll) {
+    const units = resolveUnitExtIds()
+    const results = []
+    for (const u of units) {
+      const sp = new URLSearchParams({ datum_von, datum_bis, unit: u })
+      const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
+      const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
+      const perHeaders = { ...baseHeaders, unit: u }
+      const r = await axios.get(url, { headers: perHeaders })
+      results.push(r.data)
+    }
+    for (const r of results) {
+      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
+      items.push(...arr)
+    }
+  } else {
+    const sp = new URLSearchParams({ datum_von, datum_bis, unit })
+    const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
+    const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
+    const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
+    items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
+  }
+  const headers = type === 'umsatzliste'
+    ? ['KUNDE','PROJEKT','UMSATZ']
+    : ['MITARBEITER','KUNDE','STUNDEN']
+  const lines = []
+  lines.push(headers.join(';'))
+  for (const r of items) {
+    if (type === 'umsatzliste') {
+      lines.push([safe(r?.KUNDE||r?.kunde), safe(r?.PROJEKT||r?.projekt), num(r?.UMSATZ||r?.umsatz)].join(';'))
+    } else {
+      lines.push([safe(r?.MITARBEITER||r?.mitarbeiter), safe(r?.KUNDE||r?.kunde), num(r?.STUNDEN||r?.stunden)].join(';'))
+    }
+  }
+  function safe(s){ return (String(s??'')).replaceAll(';', ',') }
+  function num(n){ return String(Number(n||0)).replace('.', ',') }
+  return Buffer.from(lines.join('\n'), 'utf8')
+}
     const json = JSON.parse(raw || '{}')
     if (json?.apex) {
       if (typeof json.apex.username === 'string') APEX_OVERRIDES.username = json.apex.username
@@ -165,7 +210,8 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     }
   } else {
     const sp = new URLSearchParams({ datum_von, datum_bis, unit })
-    const url = `${APEX_BASE}/${type === 'umsatzliste' ? 'umsatzliste' : 'zeiten'}${sp.toString() ? `?${sp.toString()}` : ''}`
+    const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
+    const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
     const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
     items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
   }
@@ -174,11 +220,21 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   const chunks = []
   doc.on('data', c => chunks.push(c))
 
-  // Header
+  // Header (optional logo)
   const title = type === 'umsatzliste' ? 'Umsatzliste' : 'Stunden'
+  try {
+    const logoUrl = (process.env.PDF_LOGO_URL || '').trim()
+    if (logoUrl) {
+      const lr = await axios.get(logoUrl, { responseType: 'arraybuffer' })
+      const lb = Buffer.from(lr.data)
+      doc.image(lb, { fit: [120, 40] })
+      doc.moveDown(0.2)
+    }
+  } catch (_) { /* ignore logo errors */ }
   doc.fillColor('#111').fontSize(20).text(`Realcore · ${title}`, { align: 'left' })
   doc.moveDown(0.3)
-  doc.fillColor('#555').fontSize(11).text(`Zeitraum: ${datum_von} – ${datum_bis}`)
+  const fmt = (s)=>{ try { const d=new Date(s); return new Intl.DateTimeFormat('de-DE').format(d) } catch { return s } }
+  doc.fillColor('#555').fontSize(11).text(`Zeitraum: ${fmt(datum_von)} – ${fmt(datum_bis)}`)
   doc.fillColor('#555').fontSize(11).text(`Unit: ${unit || 'ALL'}  •  Datensätze: ${items.length}`)
   doc.moveDown(0.8)
 
@@ -240,7 +296,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       // cells
       let cx = startX
       columns.forEach((c, idx) => {
-        const v = (typeof c.value === 'function') ? c.value(r) : r[c.key]
+        const v = (typeof c.value === 'function') ? c.value(r, (r && typeof r.__index === 'number') ? r.__index : i) : r[c.key]
         doc.fillColor('#111').text(String(v ?? ''), cx+6, y+4, { width: colWidths[idx]-12, align: c.align||'left' })
         cx += colWidths[idx]
       })
@@ -251,6 +307,17 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     doc.y = y
   }
 
+  // Group by Kunde (optional subtotals)
+  function groupByKunde(rows) {
+    const map = new Map()
+    for (const r of rows) {
+      const k = r?.KUNDE ?? r?.kunde ?? '—'
+      if (!map.has(k)) map.set(k, [])
+      map.get(k).push(r)
+    }
+    return map
+  }
+
   // Define columns per report
   if (type === 'umsatzliste') {
     const cols = [
@@ -259,9 +326,19 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: 'Projekt', w: 2, value: (r) => r?.PROJEKT ?? r?.projekt ?? '' },
       { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(r?.UMSATZ ?? r?.umsatz) },
     ]
-    drawTable(cols, items.map((r, i)=>({ ...r, __index: i })))
+    // grouped table with subtotals per Kunde
+    const groups = groupByKunde(items)
+    let running = 0
+    for (const [kunde, rows] of groups) {
+      doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
+      drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
+      const gsum = rows.reduce((a,r)=> a + Number(r?.UMSATZ ?? r?.umsatz ?? 0), 0)
+      running += gsum
+      doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
+      doc.moveDown(0.4)
+    }
     // totals
-    const sum = items.reduce((a,r)=> a + Number(r?.UMSATZ ?? r?.umsatz ?? 0), 0)
+    const sum = running
     doc.moveDown(0.3)
     doc.fontSize(11).fillColor('#111').text(`Summe Umsatz: ${formatNumber(sum)}`, { align: 'right' })
   } else {
@@ -271,17 +348,67 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: 'Kunde', w: 2, value: (r) => r?.KUNDE ?? r?.kunde ?? '' },
       { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(r?.STUNDEN ?? r?.stunden) },
     ]
-    drawTable(cols, items.map((r, i)=>({ ...r, __index: i })))
-    const sum = items.reduce((a,r)=> a + Number(r?.STUNDEN ?? r?.stunden ?? 0), 0)
+    const groups = groupByKunde(items)
+    let running = 0
+    for (const [kunde, rows] of groups) {
+      doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
+      drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
+      const gsum = rows.reduce((a,r)=> a + Number(r?.STUNDEN ?? r?.stunden ?? 0), 0)
+      running += gsum
+      doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
+      doc.moveDown(0.4)
+    }
+    const sum = running
     doc.moveDown(0.3)
     doc.fontSize(11).fillColor('#111').text(`Summe Stunden: ${formatNumber(sum)}`, { align: 'right' })
   }
 
   // helpers
   function formatNumber(n){
-    const num = Number(n||0)
+    let num
+    if (typeof n === 'string') {
+      // normalize: remove thousands '.' and convert decimal ',' to '.'
+      const s = n.replace(/\./g, '').replace(',', '.')
+      const parsed = Number(s)
+      num = isNaN(parsed) ? 0 : parsed
+    } else {
+      num = Number(n||0)
+    }
     return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
   }
+
+  // Chart page (Top 10 nach Summe)
+  try {
+    const groups = new Map()
+    if (type === 'umsatzliste') {
+      for (const r of items) {
+        const k = r?.KUNDE ?? r?.kunde ?? '—'
+        const v = Number(r?.UMSATZ ?? r?.umsatz ?? 0)
+        groups.set(k, (groups.get(k)||0) + v)
+      }
+    } else {
+      for (const r of items) {
+        const k = r?.KUNDE ?? r?.kunde ?? '—'
+        const v = Number(r?.STUNDEN ?? r?.stunden ?? 0)
+        groups.set(k, (groups.get(k)||0) + v)
+      }
+    }
+    const arr = Array.from(groups.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10)
+    if (arr.length > 0) {
+      const cfg = {
+        type: 'bar',
+        data: { labels: arr.map(a=>a[0]), datasets: [{ label: type==='umsatzliste'?'Umsatz':'Stunden', data: arr.map(a=>a[1]), backgroundColor: 'rgba(37,99,235,0.6)' }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: false }, title: { display: true, text: 'Top 10 nach Kunde' } } }
+      }
+      const url = 'https://quickchart.io/chart?c=' + encodeURIComponent(JSON.stringify(cfg))
+      const qr = await axios.get(url, { responseType: 'arraybuffer' })
+      const img = Buffer.from(qr.data)
+      doc.addPage()
+      doc.fontSize(16).fillColor('#111').text('Diagramm', { align: 'left' })
+      doc.moveDown(0.2)
+      doc.image(img, { fit: [doc.page.width - 72, doc.page.height - 120] })
+    }
+  } catch (_) { /* chart optional */ }
 
   doc.end()
   await new Promise(res => doc.on('end', res))
@@ -292,9 +419,15 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
 async function runSchedule(s) {
   const { rangePreset = 'last_month', unit = 'ALL', report = 'stunden', recipients = [] } = s || {}
   const range = computeRange(rangePreset)
-  const pdf = await generateReportPdf({ type: report === 'umsatzliste' ? 'umsatzliste' : 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+  const rtype = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
+  // Fetch raw items once for CSV (reuse generateReportPdf aggregation logic via small helper)
+  const pdf = await generateReportPdf({ type: rtype, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+  const csv = await generateCsv({ type: rtype, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
   const subject = `Report ${report} · ${unit || 'ALL'} · ${range.datum_von.slice(0,10)} – ${range.datum_bis.slice(0,10)}`
-  await sendSmtpMail({ to: recipients, subject, text: 'Siehe Anhang.', attachments: [{ filename: `report_${report}.pdf`, content: pdf }] })
+  await sendSmtpMail({ to: recipients, subject, text: 'Siehe Anhang.', attachments: [
+    { filename: `report_${report}.pdf`, content: pdf },
+    { filename: `report_${report}.csv`, content: csv }
+  ] })
 }
 
 // Simple ticker: check every 60s
@@ -362,9 +495,31 @@ app.post('/api/reports/run', async (req, res) => {
     const preset = rangePreset || 'last_month'
     const range = computeRange(preset)
     const pdf = await generateReportPdf({ type: report === 'umsatzliste' ? 'umsatzliste' : 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const csv = await generateCsv({ type: report === 'umsatzliste' ? 'umsatzliste' : 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
     const subject = `Report ${report || 'stunden'} · ${unit || 'ALL'} · ${range.datum_von.slice(0,10)} – ${range.datum_bis.slice(0,10)}`
-    await sendSmtpMail({ to: recipients, subject, text: 'Siehe Anhang.', attachments: [{ filename: `report_${report||'stunden'}.pdf`, content: pdf }] })
+    await sendSmtpMail({ to: recipients, subject, text: 'Siehe Anhang.', attachments: [
+      { filename: `report_${report||'stunden'}.pdf`, content: pdf },
+      { filename: `report_${report||'stunden'}.csv`, content: csv },
+    ] })
     res.json({ ok: true })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
+// Preview PDF (no email) – returns application/pdf
+app.post('/api/reports/preview', async (req, res) => {
+  try {
+    const { report, unit, rangePreset } = req.body || {}
+    const preset = rangePreset || 'last_month'
+    const range = computeRange(preset)
+    const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
+    const pdf = await generateReportPdf({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const fname = `report_${report||'stunden'}_${(unit||'ALL')}_${range.datum_von.slice(0,10)}_${range.datum_bis.slice(0,10)}.pdf`.replace(/[^a-zA-Z0-9._-]+/g,'_')
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="${fname}"`)
+    res.send(pdf)
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });

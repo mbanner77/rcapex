@@ -6,3 +6,5 @@ export const UNITS = [
   { id: 5, ext_id: 'YtK84kUP26b7bMw', name: 'RCC Transformation' },
   { id: 6, ext_id: 'eQnsTZhPu8GPFUm', name: 'RCC Architecture' },
 ]
+
+export const LOGO_URL = 'https://realcore.info/bilder/rc-logo.png'

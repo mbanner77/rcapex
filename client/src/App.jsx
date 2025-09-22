@@ -16,6 +16,7 @@ import Login from './components/Login.jsx'
 import PasswordGate from './components/PasswordGate.jsx'
 import SettingsDialog from './components/SettingsDialog.jsx'
 import ReportSchedules from './components/ReportSchedules.jsx'
+import { LOGO_URL } from './lib/constants'
 
 function getPrevMonthRange() {
   const now = new Date()
@@ -126,7 +127,10 @@ export default function App() {
   return (
     <div className="container" style={{ fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif' }}>
       <div className="header">
-        <h1>Realcore Controlling Dashboard</h1>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <img src={LOGO_URL} alt="Realcore" style={{ height: 28 }} />
+          <h1 style={{ margin: 0 }}>Realcore Controlling Dashboard</h1>
+        </div>
         <div className="spacer" />
         <div className="userinfo">Angemeldet{auth.username ? `: ${auth.username}` : ''}</div>
         <button className="btn" style={{ marginRight: 8 }} onClick={() => setShowSchedules(true)}>Report-Zeitpläne</button>

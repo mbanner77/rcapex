@@ -112,3 +112,8 @@ export async function runReportNow(payload) {
   const res = await axios.post('/api/reports/run', payload)
   return res.data
 }
+
+export async function previewReportPdf(payload) {
+  const res = await axios.post('/api/reports/preview', payload, { responseType: 'blob' })
+  return res
+}

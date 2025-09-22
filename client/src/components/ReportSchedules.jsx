@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings } from '../lib/api'
+import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf } from '../lib/api'
 import { UNITS } from '../lib/constants'
 
 const DEFAULT = {
@@ -139,9 +139,19 @@ export default function ReportSchedules({ onClose }){
     }catch(e){ alert('Fehler: ' + (e?.response?.data?.message || e.message)) }
   }
 
+  async function previewPdf(){
+    try{
+      const r = await previewReportPdf({ report: form.report || 'stunden', unit: form.unit || 'ALL', rangePreset: form.rangePreset || 'last_month' })
+      const blob = new Blob([r.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(()=>URL.revokeObjectURL(url), 60_000)
+    }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e)=>e.stopPropagation()} style={{ maxWidth: 900 }}>
+      <div className="modal" onClick={(e)=>e.stopPropagation()} style={{ width:'90vw', maxWidth: 1200 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <h3 style={{ margin:0 }}>Report-Zeitpläne</h3>
           <div style={{ flex:1 }} />
@@ -160,49 +170,51 @@ export default function ReportSchedules({ onClose }){
                 {items.length === 0 ? (
                   <div style={{ color:'var(--muted)' }}>Keine Einträge</div>
                 ) : (
-                  <table className="table" style={{ width:'100%', fontSize:13 }}>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Aktiv</th>
-                        <th>Typ</th>
-                        <th>Unit</th>
-                        <th>Range</th>
-                        <th>Häufigkeit</th>
-                        <th>Uhrzeit (UTC)</th>
-                        <th>Empfänger</th>
-                        <th>Aktion</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map(it => (
-                        <tr key={it.id}>
-                          <td>{it.name || '-'}</td>
-                          <td>{it.active ? 'Ja' : 'Nein'}</td>
-                          <td>{it.report}</td>
-                          <td>{it.unit || 'ALL'}</td>
-                          <td>{it.rangePreset}</td>
-                          <td>{it.frequency}</td>
-                          <td>{it.at || '06:00'}</td>
-                          <td>{Array.isArray(it.recipients) ? it.recipients.join(', ') : ''}</td>
-                          <td style={{ display:'flex', gap:6 }}>
-                            <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
-                            <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
-                            <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
-                            <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
-                            <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>
-                          </td>
+                  <div style={{ overflowX:'auto' }}>
+                    <table className="table" style={{ width:'100%', minWidth: 900, fontSize:13 }}>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Aktiv</th>
+                          <th>Typ</th>
+                          <th>Unit</th>
+                          <th>Range</th>
+                          <th>Häufigkeit</th>
+                          <th>Uhrzeit (UTC)</th>
+                          <th>Empfänger</th>
+                          <th>Aktion</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {items.map(it => (
+                          <tr key={it.id}>
+                            <td>{it.name || '-'}</td>
+                            <td>{it.active ? 'Ja' : 'Nein'}</td>
+                            <td>{it.report}</td>
+                            <td>{it.unit || 'ALL'}</td>
+                            <td>{it.rangePreset}</td>
+                            <td>{it.frequency}</td>
+                            <td>{it.at || '06:00'}</td>
+                            <td>{Array.isArray(it.recipients) ? it.recipients.join(', ') : ''}</td>
+                            <td style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                              <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
+                              <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
+                              <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
+                              <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
+                              <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
 
             <div className="panel" style={{ padding:12 }}>
               <strong>Eintrag {form.id ? '(Bearbeiten)' : '(Neu)'} </strong>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12, marginTop:8 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:12, marginTop:8 }}>
                 <Labeled label="Name">
                   <input className="input" value={form.name} onChange={(e)=>update('name', e.target.value)} placeholder="Monatsreport" />
                 </Labeled>
@@ -271,9 +283,10 @@ export default function ReportSchedules({ onClose }){
                   </div>
                 </Labeled>
               </div>
-              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+              <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
                 <button className="btn" onClick={save} disabled={saving}>{saving? 'Speichere…' : 'Speichern'}</button>
                 <button className="btn" onClick={runAdhoc}>Ad-hoc senden…</button>
+                <button className="btn" onClick={previewPdf}>PDF ansehen</button>
               </div>
               <div style={{ display:'flex', gap:12, marginTop:8, alignItems:'center', flexWrap:'wrap' }}>
                 {error && <div style={{ color:'crimson', whiteSpace:'pre-wrap' }}>Fehler: {String(error)}</div>}
