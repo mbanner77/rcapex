@@ -218,13 +218,14 @@ app.get('/api/mail/settings', (req, res) => {
 
 app.post('/api/mail/settings', (req, res) => {
   const { host, port, secure, user, pass, defaultRecipient, from } = req.body || {}
-  if (typeof host === 'string') SMTP_CONFIG.host = host
-  if (typeof port === 'number') SMTP_CONFIG.port = port
-  if (typeof secure === 'boolean') SMTP_CONFIG.secure = secure
-  if (typeof user === 'string') SMTP_CONFIG.user = user
-  if (typeof defaultRecipient === 'string') SMTP_CONFIG.defaultRecipient = defaultRecipient
-  if (typeof from === 'string') SMTP_CONFIG.from = from
-  if (typeof pass === 'string' && pass.trim()) SMTP_CONFIG.pass = pass
+  // Only allow updates for fields not enforced by ENV
+  if (typeof host === 'string' && !process.env.SMTP_HOST) SMTP_CONFIG.host = host
+  if (typeof port === 'number' && !process.env.SMTP_PORT) SMTP_CONFIG.port = port
+  if (typeof secure === 'boolean' && !process.env.SMTP_SECURE) SMTP_CONFIG.secure = secure
+  if (typeof user === 'string' && !process.env.SMTP_USER) SMTP_CONFIG.user = user
+  if (typeof defaultRecipient === 'string' && !process.env.SMTP_DEFAULT_RECIPIENT) SMTP_CONFIG.defaultRecipient = defaultRecipient
+  if (typeof from === 'string' && !process.env.SMTP_FROM) SMTP_CONFIG.from = from
+  if (typeof pass === 'string' && pass.trim() && !process.env.SMTP_PASS) SMTP_CONFIG.pass = pass
   savePersistedApex().finally(() => {})
   logMail('SMTP settings updated', { host: SMTP_CONFIG.host, port: SMTP_CONFIG.port, secure: SMTP_CONFIG.secure, user: SMTP_CONFIG.user, defaultRecipient: SMTP_CONFIG.defaultRecipient, from: SMTP_CONFIG.from, pass: SMTP_CONFIG.pass ? '***' : '' })
   res.json({ ok: true })
