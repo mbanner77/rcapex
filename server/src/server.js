@@ -48,6 +48,23 @@ async function loadPersistedApex() {
     // read file if exists
     let raw
     try { raw = await fs.readFile(configPath, 'utf8') } catch (_) { return }
+    const json = JSON.parse(raw || '{}')
+    if (json?.apex) {
+      if (typeof json.apex.username === 'string') APEX_OVERRIDES.username = json.apex.username
+      if (typeof json.apex.password === 'string') APEX_OVERRIDES.password = json.apex.password
+    }
+    // Load SMTP persisted settings, but only for fields not provided via ENV
+    if (json?.smtp) {
+      if (typeof json.smtp.host === 'string' && !process.env.SMTP_HOST) SMTP_CONFIG.host = json.smtp.host
+      if (typeof json.smtp.port === 'number' && !process.env.SMTP_PORT) SMTP_CONFIG.port = json.smtp.port
+      if (typeof json.smtp.secure === 'boolean' && !process.env.SMTP_SECURE) SMTP_CONFIG.secure = json.smtp.secure
+      if (typeof json.smtp.user === 'string' && !process.env.SMTP_USER) SMTP_CONFIG.user = json.smtp.user
+      if (typeof json.smtp.pass === 'string' && !process.env.SMTP_PASS) SMTP_CONFIG.pass = json.smtp.pass
+      if (typeof json.smtp.defaultRecipient === 'string' && !process.env.SMTP_DEFAULT_RECIPIENT) SMTP_CONFIG.defaultRecipient = json.smtp.defaultRecipient
+      if (typeof json.smtp.from === 'string' && !process.env.SMTP_FROM) SMTP_CONFIG.from = json.smtp.from
+    }
+  } catch (_) { /* ignore */ }
+}
 
 // Generate CSV attachment (UTF-8)
 async function generateCsv({ type, unit, datum_von, datum_bis }){
@@ -89,27 +106,42 @@ async function generateCsv({ type, unit, datum_von, datum_bis }){
     }
   }
   function safe(s){ return (String(s??'')).replaceAll(';', ',') }
-  function num(n){ return String(Number(n||0)).replace('.', ',') }
+  function num(n){
+    if (typeof n === 'string') return (n.replace(/\./g,'').replace(',', '.'))
+    return String(n ?? 0)
+  }
   return Buffer.from(lines.join('\n'), 'utf8')
 }
-    const json = JSON.parse(raw || '{}')
-    if (json?.apex) {
-      if (typeof json.apex.username === 'string') APEX_OVERRIDES.username = json.apex.username
-      if (typeof json.apex.password === 'string') APEX_OVERRIDES.password = json.apex.password
-    }
-    // Load SMTP persisted settings, but only for fields not provided via ENV
-    if (json?.smtp) {
-      if (typeof json.smtp.host === 'string' && !process.env.SMTP_HOST) SMTP_CONFIG.host = json.smtp.host
-      if (typeof json.smtp.port === 'number' && !process.env.SMTP_PORT) SMTP_CONFIG.port = json.smtp.port
-      if (typeof json.smtp.secure === 'boolean' && !process.env.SMTP_SECURE) SMTP_CONFIG.secure = json.smtp.secure
-      if (typeof json.smtp.user === 'string' && !process.env.SMTP_USER) SMTP_CONFIG.user = json.smtp.user
-      if (typeof json.smtp.pass === 'string' && !process.env.SMTP_PASS) SMTP_CONFIG.pass = json.smtp.pass
-      if (typeof json.smtp.defaultRecipient === 'string' && !process.env.SMTP_DEFAULT_RECIPIENT) SMTP_CONFIG.defaultRecipient = json.smtp.defaultRecipient
-      if (typeof json.smtp.from === 'string' && !process.env.SMTP_FROM) SMTP_CONFIG.from = json.smtp.from
-    }
-  } catch (_) { /* ignore */ }
-}
 
+// Helper: fetch aggregated raw items (handles unit=ALL)
+async function getAggregatedItems({ type, unit, datum_von, datum_bis }){
+  const baseHeaders = buildHeaders({}, { datum_von, datum_bis })
+  const isAll = !unit || unit === 'ALL'
+  let items = []
+  if (isAll) {
+    const units = resolveUnitExtIds()
+    const results = []
+    for (const u of units) {
+      const sp = new URLSearchParams({ datum_von, datum_bis, unit: u })
+      const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
+      const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
+      const perHeaders = { ...baseHeaders, unit: u }
+      const r = await axios.get(url, { headers: perHeaders })
+      results.push(r.data)
+    }
+    for (const r of results) {
+      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
+      items.push(...arr)
+    }
+  } else {
+    const sp = new URLSearchParams({ datum_von, datum_bis, unit })
+    const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
+    const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
+    const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
+    items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
+  }
+  return items
+}
 async function savePersistedApex() {
   try {
     const [{ default: path }, fs, fsn] = await Promise.all([import('path'), import('fs'), import('fs/promises')])
@@ -199,7 +231,8 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     const results = []
     for (const u of units) {
       const sp = new URLSearchParams({ datum_von, datum_bis, unit: u })
-      const url = `${APEX_BASE}/${type === 'umsatzliste' ? 'umsatzliste' : 'zeiten'}${sp.toString() ? `?${sp.toString()}` : ''}`
+      const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
+      const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
       const perHeaders = { ...baseHeaders, unit: u }
       const r = await axios.get(url, { headers: perHeaders })
       results.push(r.data)
@@ -544,6 +577,32 @@ app.post('/api/reports/preview', async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `inline; filename="${fname}"`)
     res.send(pdf)
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
+// Debug endpoint: returns raw items and quick totals (no PDF/email)
+app.post('/api/reports/debug', async (req, res) => {
+  try {
+    const { report, unit, rangePreset } = req.body || {}
+    const preset = rangePreset || 'last_month'
+    const range = computeRange(preset)
+    const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
+    const items = await getAggregatedItems({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    // compute quick total
+    const normalize = (v) => {
+      if (typeof v === 'string') return Number(v.replace(/\./g,'').replace(',', '.')) || 0
+      return Number(v||0)
+    }
+    let total = 0
+    if (type === 'umsatzliste') {
+      for (const r of items) total += normalize(r?.UMSATZ ?? r?.umsatz ?? 0)
+    } else {
+      for (const r of items) total += normalize(r?.STUNDEN ?? r?.stunden ?? 0)
+    }
+    res.json({ ok: true, count: items.length, total, sample: items.slice(0, 25) })
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });
