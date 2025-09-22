@@ -199,6 +199,14 @@ export default function ReportSchedules({ onClose }){
                             <td style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                               <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
                               <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
+                              <button className="btn" onClick={async ()=>{
+                                try{
+                                  const r = await previewReportPdf({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
+                                  const blob = new Blob([r.data], { type: 'application/pdf' })
+                                  const url = URL.createObjectURL(blob)
+                                  window.open(url, '_blank'); setTimeout(()=>URL.revokeObjectURL(url), 60_000)
+                                }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
+                              }}>PDF ansehen</button>
                               <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
                               <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
                               <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>

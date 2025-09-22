@@ -223,7 +223,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   // Header (optional logo)
   const title = type === 'umsatzliste' ? 'Umsatzliste' : 'Stunden'
   try {
-    const logoUrl = (process.env.PDF_LOGO_URL || '').trim()
+    const logoUrl = (process.env.PDF_LOGO_URL || 'https://realcore.info/bilder/rc-logo.png').trim()
     if (logoUrl) {
       const lr = await axios.get(logoUrl, { responseType: 'arraybuffer' })
       const lb = Buffer.from(lr.data)
@@ -318,13 +318,27 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     return map
   }
 
+  // helpers to extract numeric values across different field names
+  function pickNumber(row, keys) {
+    for (const k of keys) {
+      if (row && row[k] != null) return parseNumber(row[k])
+    }
+    return 0
+  }
+  function pickText(row, keys) {
+    for (const k of keys) {
+      if (row && row[k] != null && String(row[k]).trim() !== '') return String(row[k])
+    }
+    return ''
+  }
+
   // Define columns per report
   if (type === 'umsatzliste') {
     const cols = [
-      { label: '#', w: 0.6, value: (_, i) => i+1 },
-      { label: 'Kunde', w: 2, value: (r) => r?.KUNDE ?? r?.kunde ?? '' },
-      { label: 'Projekt', w: 2, value: (r) => r?.PROJEKT ?? r?.projekt ?? '' },
-      { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(r?.UMSATZ ?? r?.umsatz) },
+      { label: '#', w: 0.6, value: (_, i) => (typeof i === 'number' ? i+1 : '') },
+      { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde','kunde_name']) },
+      { label: 'Projekt', w: 2, value: (r) => pickText(r, ['PROJEKT','projekt','projekt_name']) },
+      { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['UMSATZ','umsatz','BETRAG','betrag','SUMME','summe','NETTO','netto','WERT','wert'])) },
     ]
     // grouped table with subtotals per Kunde
     const groups = groupByKunde(items)
@@ -332,7 +346,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
       drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
-      const gsum = rows.reduce((a,r)=> a + Number(r?.UMSATZ ?? r?.umsatz ?? 0), 0)
+      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['UMSATZ','umsatz','BETRAG','betrag','SUMME','summe','NETTO','netto','WERT','wert']), 0)
       running += gsum
       doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
       doc.moveDown(0.4)
@@ -343,17 +357,17 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     doc.fontSize(11).fillColor('#111').text(`Summe Umsatz: ${formatNumber(sum)}`, { align: 'right' })
   } else {
     const cols = [
-      { label: '#', w: 0.6, value: (_, i) => i+1 },
-      { label: 'Mitarbeiter', w: 2, value: (r) => r?.MITARBEITER ?? r?.mitarbeiter ?? '' },
-      { label: 'Kunde', w: 2, value: (r) => r?.KUNDE ?? r?.kunde ?? '' },
-      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(r?.STUNDEN ?? r?.stunden) },
+      { label: '#', w: 0.6, value: (_, i) => (typeof i === 'number' ? i+1 : '') },
+      { label: 'Mitarbeiter', w: 2, value: (r) => pickText(r, ['MITARBEITER','mitarbeiter','name']) },
+      { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde']) },
+      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['STUNDEN','stunden','ZEIT','zeit','HOURS','hours'])) },
     ]
     const groups = groupByKunde(items)
     let running = 0
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
       drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
-      const gsum = rows.reduce((a,r)=> a + Number(r?.STUNDEN ?? r?.stunden ?? 0), 0)
+      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['STUNDEN','stunden','ZEIT','zeit','HOURS','hours']), 0)
       running += gsum
       doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
       doc.moveDown(0.4)
@@ -377,19 +391,29 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
   }
 
+  function parseNumber(n){
+    if (typeof n === 'number') return n
+    if (typeof n === 'string') {
+      const s = n.replace(/\./g, '').replace(',', '.')
+      const parsed = Number(s)
+      return isNaN(parsed) ? 0 : parsed
+    }
+    return Number(n||0)
+  }
+
   // Chart page (Top 10 nach Summe)
   try {
     const groups = new Map()
     if (type === 'umsatzliste') {
       for (const r of items) {
         const k = r?.KUNDE ?? r?.kunde ?? '—'
-        const v = Number(r?.UMSATZ ?? r?.umsatz ?? 0)
+        const v = parseNumber(r?.UMSATZ ?? r?.umsatz ?? 0)
         groups.set(k, (groups.get(k)||0) + v)
       }
     } else {
       for (const r of items) {
         const k = r?.KUNDE ?? r?.kunde ?? '—'
-        const v = Number(r?.STUNDEN ?? r?.stunden ?? 0)
+        const v = parseNumber(r?.STUNDEN ?? r?.stunden ?? 0)
         groups.set(k, (groups.get(k)||0) + v)
       }
     }
