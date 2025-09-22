@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
-import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow } from '../lib/api'
+import React, { useEffect, useMemo, useState } from 'react'
+import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings } from '../lib/api'
+import { UNITS } from '../lib/constants'
 
 const DEFAULT = {
   id: '',
@@ -21,14 +22,18 @@ export default function ReportSchedules({ onClose }){
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState(DEFAULT)
+  const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
 
   useEffect(() => {
     let cancelled = false
     async function load(){
       setLoading(true); setError('')
       try {
-        const r = await listReportSchedules()
-        if (!cancelled) setItems(Array.isArray(r?.items) ? r.items : [])
+        const [r, m] = await Promise.all([listReportSchedules(), getMailSettings().catch(()=>({}))])
+        if (!cancelled) {
+          setItems(Array.isArray(r?.items) ? r.items : [])
+          setMailDefaults({ defaultRecipient: m?.defaultRecipient || '' })
+        }
       } catch (e) {
         if (!cancelled) setError(e?.response?.data?.message || e.message)
       } finally {
@@ -58,10 +63,49 @@ export default function ReportSchedules({ onClose }){
   function newItem(){ setForm(DEFAULT) }
   function update(k, v){ setForm(f => ({ ...f, [k]: v })) }
 
+  const nextRunPreview = useMemo(() => {
+    try {
+      const at = (form.at || '06:00').split(':').map(n=>parseInt(n,10));
+      const hour = at[0]||6, minute = at[1]||0
+      const now = new Date()
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute, 0))
+      if (form.frequency === 'daily') {
+        if (d <= now) d.setUTCDate(d.getUTCDate()+1)
+      } else if (form.frequency === 'weekly') {
+        const wd = (now.getUTCDay() || 7)
+        const list = (form.weekdays||[1]).slice().sort((a,b)=>a-b)
+        let offset = 0
+        for (let i=0;i<14;i++){
+          const cand = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+i, hour, minute, 0))
+          const cWd = cand.getUTCDay() || 7
+          if (list.includes(cWd) && cand>now){ d.setTime(cand.getTime()); break }
+          offset++
+        }
+      } else if (form.frequency === 'monthly') {
+        const day = Math.max(1, Math.min(28, Number(form.dayOfMonth||1)))
+        const cand = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day, hour, minute, 0))
+        if (cand <= now) cand.setUTCMonth(cand.getUTCMonth()+1)
+        d.setTime(cand.getTime())
+      }
+      return d.toISOString().replace('T',' ').slice(0,16) + ' UTC'
+    } catch { return '' }
+  }, [form.at, form.frequency, form.weekdays, form.dayOfMonth])
+
+  function validate(){
+    if (!form.name.trim()) return 'Name fehlt'
+    if (!form.report) return 'Report-Typ fehlt'
+    if (!form.at || !/^\d{2}:\d{2}$/.test(form.at)) return 'Uhrzeit im Format HH:MM'
+    const rec = (form.recipients||[]).filter(Boolean)
+    if (rec.length===0 && !mailDefaults.defaultRecipient) return 'Empfänger erforderlich (oder Standard-Empfänger im Mail-Setup setzen)'
+    return ''
+  }
+
   async function save(){
     setSaving(true); setError('')
     try{
+      const validation = validate(); if (validation){ throw new Error(validation) }
       const payload = { ...form, recipients: (form.recipients||[]).filter(Boolean) }
+      if (payload.recipients.length===0 && mailDefaults.defaultRecipient) payload.recipients = [mailDefaults.defaultRecipient]
       if (!payload.recipients.length) throw new Error('Mindestens ein Empfänger erforderlich')
       const r = await upsertReportSchedule(payload)
       // reload
@@ -144,6 +188,8 @@ export default function ReportSchedules({ onClose }){
                           <td style={{ display:'flex', gap:6 }}>
                             <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
                             <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
+                            <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
+                            <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
                             <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>
                           </td>
                         </tr>
@@ -173,7 +219,12 @@ export default function ReportSchedules({ onClose }){
                   </select>
                 </Labeled>
                 <Labeled label="Unit">
-                  <input className="input" value={form.unit} onChange={(e)=>update('unit', e.target.value)} placeholder="ALL oder ext_id" />
+                  <select className="input" value={form.unit} onChange={(e)=>update('unit', e.target.value)}>
+                    <option value="ALL">ALL</option>
+                    {UNITS.map(u => (
+                      <option key={u.ext_id} value={u.ext_id}>{u.name} ({u.ext_id})</option>
+                    ))}
+                  </select>
                 </Labeled>
                 <Labeled label="Zeitraum">
                   <select className="input" value={form.rangePreset} onChange={(e)=>update('rangePreset', e.target.value)}>
@@ -209,7 +260,11 @@ export default function ReportSchedules({ onClose }){
                 <button className="btn" onClick={save} disabled={saving}>{saving? 'Speichere…' : 'Speichern'}</button>
                 <button className="btn" onClick={runAdhoc}>Ad-hoc senden…</button>
               </div>
-              {error && <div style={{ color:'crimson', marginTop:8, whiteSpace:'pre-wrap' }}>Fehler: {String(error)}</div>}
+              <div style={{ display:'flex', gap:12, marginTop:8, alignItems:'center' }}>
+                {error && <div style={{ color:'crimson', whiteSpace:'pre-wrap' }}>Fehler: {String(error)}</div>}
+                {!error && nextRunPreview && <div style={{ color:'var(--muted)' }}>Nächster Lauf (UTC): {nextRunPreview}</div>}
+                {!error && !nextRunPreview && <div style={{ color:'var(--muted)' }}>Nächster Lauf (UTC): n/a</div>}
+              </div>
             </div>
             <small style={{ color:'var(--muted)' }}>Zeitpläne werden in <code>server/data/config.json</code> gespeichert und von der Instanz per Minutentakt (UTC) geprüft. Versand erfolgt per SMTP.</small>
           </div>
