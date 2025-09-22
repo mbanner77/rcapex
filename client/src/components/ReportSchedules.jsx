@@ -141,11 +141,9 @@ export default function ReportSchedules({ onClose }){
 
   async function previewPdf(){
     try{
-      const r = await previewReportPdf({ report: form.report || 'stunden', unit: form.unit || 'ALL', rangePreset: form.rangePreset || 'last_month' })
-      const blob = new Blob([r.data], { type: 'application/pdf' })
-      const url = URL.createObjectURL(blob)
+      const params = new URLSearchParams({ report: form.report || 'stunden', unit: form.unit || 'ALL', rangePreset: form.rangePreset || 'last_month' })
+      const url = `/api/reports/preview?${params.toString()}`
       window.open(url, '_blank')
-      setTimeout(()=>URL.revokeObjectURL(url), 60_000)
     }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
   }
 
@@ -201,10 +199,9 @@ export default function ReportSchedules({ onClose }){
                               <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
                               <button className="btn" onClick={async ()=>{
                                 try{
-                                  const r = await previewReportPdf({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
-                                  const blob = new Blob([r.data], { type: 'application/pdf' })
-                                  const url = URL.createObjectURL(blob)
-                                  window.open(url, '_blank'); setTimeout(()=>URL.revokeObjectURL(url), 60_000)
+                                  const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
+                                  const url = `/api/reports/preview?${params.toString()}`
+                                  window.open(url, '_blank')
                                 }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
                               }}>PDF ansehen</button>
                               <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>

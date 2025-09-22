@@ -69,6 +69,45 @@ async function loadPersistedApex() {
 // Generate CSV attachment (UTF-8)
 async function generateCsv({ type, unit, datum_von, datum_bis }){
   const baseHeaders = buildHeaders({}, { datum_von, datum_bis })
+
+// Preview via GET with query params (simpler for window.open)
+app.get('/api/reports/preview', async (req, res) => {
+  try {
+    const report = req.query.report || 'stunden'
+    const unit = req.query.unit || 'ALL'
+    const rangePreset = req.query.rangePreset || 'last_month'
+    const range = computeRange(rangePreset)
+    const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
+    const pdf = await generateReportPdf({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const fname = `report_${report}_${unit}_${range.datum_von.slice(0,10)}_${range.datum_bis.slice(0,10)}.pdf`.replace(/[^a-zA-Z0-9._-]+/g,'_')
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="${fname}"`)
+    res.send(pdf)
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
+// Preview via GET for a saved schedule id
+app.get('/api/reports/preview/:scheduleId', async (req, res) => {
+  try {
+    const id = req.params.scheduleId
+    const s = SCHEDULES.find(x => x.id === id)
+    if (!s) return res.status(404).json({ error: true, message: 'schedule not found' })
+    const { rangePreset = 'last_month', unit = 'ALL', report = 'stunden' } = s || {}
+    const range = computeRange(rangePreset)
+    const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
+    const pdf = await generateReportPdf({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const fname = `report_${report}_${unit}_${range.datum_von.slice(0,10)}_${range.datum_bis.slice(0,10)}.pdf`.replace(/[^a-zA-Z0-9._-]+/g,'_')
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="${fname}"`)
+    res.send(pdf)
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
   const isAll = !unit || unit === 'ALL'
   let items = []
   if (isAll) {
@@ -261,7 +300,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       const lr = await axios.get(logoUrl, { responseType: 'arraybuffer' })
       const lb = Buffer.from(lr.data)
       doc.image(lb, { fit: [120, 40] })
-      doc.moveDown(0.2)
+      doc.moveDown(0.6)
     }
   } catch (_) { /* ignore logo errors */ }
   doc.fillColor('#111').fontSize(20).text(`Realcore · ${title}`, { align: 'left' })
@@ -393,14 +432,14 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: '#', w: 0.6, value: (_, i) => (typeof i === 'number' ? i+1 : '') },
       { label: 'Mitarbeiter', w: 2, value: (r) => pickText(r, ['MITARBEITER','mitarbeiter','name']) },
       { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde']) },
-      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['STUNDEN','stunden','ZEIT','zeit','HOURS','hours'])) },
+      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['stunden_gel','stunden_fakt','STUNDEN','stunden','ZEIT','zeit','HOURS','hours'])) },
     ]
     const groups = groupByKunde(items)
     let running = 0
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
       drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
-      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['STUNDEN','stunden','ZEIT','zeit','HOURS','hours']), 0)
+      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['stunden_gel','stunden_fakt','STUNDEN','stunden','ZEIT','zeit','HOURS','hours']), 0)
       running += gsum
       doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
       doc.moveDown(0.4)
@@ -413,7 +452,9 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   // helpers
   function formatNumber(n){
     let num
-    if (typeof n === 'string') {
+    if (n == null) {
+      num = 0
+    } else if (typeof n === 'string') {
       // normalize: remove thousands '.' and convert decimal ',' to '.'
       const s = n.replace(/\./g, '').replace(',', '.')
       const parsed = Number(s)
@@ -425,6 +466,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   }
 
   function parseNumber(n){
+    if (n == null) return 0
     if (typeof n === 'number') return n
     if (typeof n === 'string') {
       const s = n.replace(/\./g, '').replace(',', '.')
@@ -446,7 +488,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     } else {
       for (const r of items) {
         const k = r?.KUNDE ?? r?.kunde ?? '—'
-        const v = parseNumber(r?.STUNDEN ?? r?.stunden ?? 0)
+        const v = parseNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STUNDEN ?? r?.stunden ?? 0)
         groups.set(k, (groups.get(k)||0) + v)
       }
     }
