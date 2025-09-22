@@ -314,14 +314,26 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       const lr = await axios.get(logoUrl, { responseType: 'arraybuffer' })
       const lb = Buffer.from(lr.data)
       doc.image(lb, { fit: [120, 40] })
-      doc.moveDown(0.6)
+      doc.moveDown(1.0)
     }
   } catch (_) { /* ignore logo errors */ }
-  doc.fillColor('#111').fontSize(20).text(`Realcore · ${title}`, { align: 'left' })
+  // Title below logo
+  doc.fillColor('#111').fontSize(20).text(`${title}`, { align: 'left' })
   doc.moveDown(0.3)
   const fmt = (s)=>{ try { const d=new Date(s); return new Intl.DateTimeFormat('de-DE').format(d) } catch { return s } }
+
+  // Filter out zero rows before rendering
+  function numVal(n){ if (n==null) return 0; if (typeof n==='number') return n; if (typeof n==='string'){ const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v } return Number(n||0) }
+  const dataRows = (()=>{
+    if (type === 'umsatzliste') {
+      return items.filter(r => numVal(r?.UMSATZ ?? r?.umsatz ?? 0) > 0)
+    } else {
+      return items.filter(r => numVal(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? 0) > 0)
+    }
+  })()
+
   doc.fillColor('#555').fontSize(11).text(`Zeitraum: ${fmt(datum_von)} – ${fmt(datum_bis)}`)
-  doc.fillColor('#555').fontSize(11).text(`Unit: ${unit || 'ALL'}  •  Datensätze: ${items.length}`)
+  doc.fillColor('#555').fontSize(11).text(`Unit: ${unit || 'ALL'}  •  Datensätze: ${dataRows.length}`)
   doc.moveDown(0.8)
 
   // Footer with page numbers
@@ -427,7 +439,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: 'Umsatz', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['UMSATZ','umsatz','BETRAG','betrag','SUMME','summe','NETTO','netto','WERT','wert'])) },
     ]
     // grouped table with subtotals per Kunde
-    const groups = groupByKunde(items)
+    const groups = groupByKunde(dataRows)
     let running = 0
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
@@ -494,13 +506,13 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
   try {
     const groups = new Map()
     if (type === 'umsatzliste') {
-      for (const r of items) {
+      for (const r of dataRows) {
         const k = r?.KUNDE ?? r?.kunde ?? '—'
         const v = parseNumber(r?.UMSATZ ?? r?.umsatz ?? 0)
         groups.set(k, (groups.get(k)||0) + v)
       }
     } else {
-      for (const r of items) {
+      for (const r of dataRows) {
         const k = r?.KUNDE ?? r?.kunde ?? '—'
         const v = parseNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? 0)
         groups.set(k, (groups.get(k)||0) + v)
