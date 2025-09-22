@@ -23,6 +23,7 @@ export default function ReportSchedules({ onClose }){
   const [error, setError] = useState('')
   const [form, setForm] = useState(DEFAULT)
   const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
+  const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -143,7 +144,8 @@ export default function ReportSchedules({ onClose }){
     try{
       const params = new URLSearchParams({ report: form.report || 'stunden', unit: form.unit || 'ALL', rangePreset: form.rangePreset || 'last_month' })
       const url = `/api/reports/preview-page?${params.toString()}`
-      window.open(url, '_blank')
+      // In-App Vorschau
+      setPreviewUrl(url)
     }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
   }
 
@@ -201,7 +203,7 @@ export default function ReportSchedules({ onClose }){
                                 try{
                                   const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
                                   const url = `/api/reports/preview-page?${params.toString()}`
-                                  window.open(url, '_blank')
+                                  setPreviewUrl(url)
                                 }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
                               }}>PDF ansehen</button>
                               <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
@@ -293,6 +295,17 @@ export default function ReportSchedules({ onClose }){
                 <button className="btn" onClick={runAdhoc}>Ad-hoc senden…</button>
                 <button className="btn" onClick={previewPdf}>PDF ansehen</button>
               </div>
+              {previewUrl && (
+                <div className="panel" style={{ marginTop:12, padding:0, border:'1px solid var(--border)' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderBottom:'1px solid var(--border)' }}>
+                    <strong style={{ flex:1 }}>Vorschau</strong>
+                    <a className="btn" href={previewUrl} target="_blank" rel="noreferrer">Im neuen Tab öffnen</a>
+                    <a className="btn" href={previewUrl + (previewUrl.includes('?') ? '&' : '?') + 'download=1'} target="_blank" rel="noreferrer">Download</a>
+                    <button className="btn" onClick={()=>setPreviewUrl('')}>Schließen</button>
+                  </div>
+                  <iframe title="Report Vorschau" src={previewUrl} style={{ width:'100%', height:'70vh', border:0 }} />
+                </div>
+              )}
               <div style={{ display:'flex', gap:12, marginTop:8, alignItems:'center', flexWrap:'wrap' }}>
                 {error && <div style={{ color:'crimson', whiteSpace:'pre-wrap' }}>Fehler: {String(error)}</div>}
                 {!error && nextRunPreview && <div style={{ color:'var(--muted)' }}>Nächster Lauf (UTC): {nextRunPreview}</div>}

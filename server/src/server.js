@@ -446,14 +446,14 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: '#', w: 0.6, value: (_, i) => (typeof i === 'number' ? i+1 : '') },
       { label: 'Mitarbeiter', w: 2, value: (r) => pickText(r, ['MITARBEITER','mitarbeiter','name']) },
       { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde']) },
-      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['stunden_gel','stunden_fakt','STUNDEN','stunden','ZEIT','zeit','HOURS','hours'])) },
+      { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(pickNumber(r, ['stunden_gel','stunden_fakt','STD_GELEISTET','STD_FAKTURIERT','std_geleistet','std_fakturiert','STUNDEN','stunden','ZEIT','zeit','HOURS','hours'])) },
     ]
     const groups = groupByKunde(items)
     let running = 0
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
       drawTable(cols, rows.map((r,i)=>({ ...r, __index: i })))
-      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['stunden_gel','stunden_fakt','STUNDEN','stunden','ZEIT','zeit','HOURS','hours']), 0)
+      const gsum = rows.reduce((a,r)=> a + pickNumber(r, ['stunden_gel','stunden_fakt','STD_GELEISTET','STD_FAKTURIERT','std_geleistet','std_fakturiert','STUNDEN','stunden','ZEIT','zeit','HOURS','hours']), 0)
       running += gsum
       doc.fontSize(10).fillColor('#111').text(`Zwischensumme ${kunde}: ${formatNumber(gsum)}`, { align: 'right' })
       doc.moveDown(0.4)
@@ -502,7 +502,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
     } else {
       for (const r of items) {
         const k = r?.KUNDE ?? r?.kunde ?? '—'
-        const v = parseNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STUNDEN ?? r?.stunden ?? 0)
+        const v = parseNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? 0)
         groups.set(k, (groups.get(k)||0) + v)
       }
     }
