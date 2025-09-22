@@ -76,12 +76,13 @@ app.get('/api/reports/preview', async (req, res) => {
     const report = req.query.report || 'stunden'
     const unit = req.query.unit || 'ALL'
     const rangePreset = req.query.rangePreset || 'last_month'
+    const download = String(req.query.download||'').toLowerCase()==='1'
     const range = computeRange(rangePreset)
     const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
     const pdf = await generateReportPdf({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
     const fname = `report_${report}_${unit}_${range.datum_von.slice(0,10)}_${range.datum_bis.slice(0,10)}.pdf`.replace(/[^a-zA-Z0-9._-]+/g,'_')
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `inline; filename="${fname}"`)
+    res.setHeader('Content-Disposition', `${download? 'attachment' : 'inline'}; filename="${fname}"`)
     res.send(pdf)
   } catch (e) {
     const status = e.response?.status || 500;
@@ -96,17 +97,30 @@ app.get('/api/reports/preview/:scheduleId', async (req, res) => {
     const s = SCHEDULES.find(x => x.id === id)
     if (!s) return res.status(404).json({ error: true, message: 'schedule not found' })
     const { rangePreset = 'last_month', unit = 'ALL', report = 'stunden' } = s || {}
+    const download = String(req.query.download||'').toLowerCase()==='1'
     const range = computeRange(rangePreset)
     const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
     const pdf = await generateReportPdf({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
     const fname = `report_${report}_${unit}_${range.datum_von.slice(0,10)}_${range.datum_bis.slice(0,10)}.pdf`.replace(/[^a-zA-Z0-9._-]+/g,'_')
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `inline; filename="${fname}"`)
+    res.setHeader('Content-Disposition', `${download? 'attachment' : 'inline'}; filename="${fname}"`)
     res.send(pdf)
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });
   }
+})
+
+// Simple HTML page that embeds the PDF for browsers that struggle with direct PDF rendering
+app.get('/api/reports/preview-page', (req, res) => {
+  const report = encodeURIComponent(req.query.report || 'stunden')
+  const unit = encodeURIComponent(req.query.unit || 'ALL')
+  const rangePreset = encodeURIComponent(req.query.rangePreset || 'last_month')
+  const download = encodeURIComponent(req.query.download || '')
+  const apiUrl = `/api/reports/preview?report=${report}&unit=${unit}&rangePreset=${rangePreset}${download?`&download=${download}`:''}`
+  const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Report Vorschau</title><style>html,body{height:100%;margin:0} .toolbar{padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8;align-items:center} iframe{border:0;width:100%;height:calc(100% - 42px)}</style></head><body><div class="toolbar"><a href="${apiUrl}&download=1">Download</a></div><iframe src="${apiUrl}" title="Report"></iframe></body></html>`
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.send(html)
 })
   const isAll = !unit || unit === 'ALL'
   let items = []

@@ -142,7 +142,7 @@ export default function ReportSchedules({ onClose }){
   async function previewPdf(){
     try{
       const params = new URLSearchParams({ report: form.report || 'stunden', unit: form.unit || 'ALL', rangePreset: form.rangePreset || 'last_month' })
-      const url = `/api/reports/preview?${params.toString()}`
+      const url = `/api/reports/preview-page?${params.toString()}`
       window.open(url, '_blank')
     }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
   }
@@ -200,7 +200,7 @@ export default function ReportSchedules({ onClose }){
                               <button className="btn" onClick={async ()=>{
                                 try{
                                   const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
-                                  const url = `/api/reports/preview?${params.toString()}`
+                                  const url = `/api/reports/preview-page?${params.toString()}`
                                   window.open(url, '_blank')
                                 }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
                               }}>PDF ansehen</button>
