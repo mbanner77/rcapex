@@ -36,15 +36,20 @@ services:
         value: 2025-05-30T00:00:00Z
       - key: UNIT_EXT_IDS
         value: zaE22GlNK6AZfBc,YytRDIbdYtOVax8,VUmfO9SS3wXt2iB,h0zDeGnQIgfY3px,YtK84kUP26b7bMw,eQnsTZhPu8GPFUm
-      - key: O365_TENANT_ID
+      # SMTP configuration (set via Render dashboard for persistence)
+      - key: SMTP_HOST
+        value: smtp.strato.de
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
         sync: false
-      - key: O365_CLIENT_ID
+      - key: SMTP_PASS
         sync: false
-      - key: O365_CLIENT_SECRET
-        sync: false
-      - key: O365_SENDER_UPN
-        sync: false
-      - key: O365_DEFAULT_RECIPIENT
+      - key: SMTP_FROM
+        value: m.banner@futurestore.shop
+      - key: SMTP_DEFAULT_RECIPIENT
         sync: false
       - key: DEBUG_MAIL
         value: "0"

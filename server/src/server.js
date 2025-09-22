@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import session from 'express-session';
+import nodemailer from 'nodemailer';
 
 dotenv.config();
 
@@ -28,27 +29,84 @@ app.use(session({
   },
 }));
 
-const APEX_BASE = process.env.APEX_BASE || 'https://apex.realcore.group:8443/ords/realcore/controlling';
-const APEX_USERNAME = process.env.APEX_USERNAME || '';
-const APEX_PASSWORD = process.env.APEX_PASSWORD || '';
-// In-memory overrides editable via API
+const APEX_BASE = (process.env.APEX_BASE || 'https://apex.realcore.group:8443/ords/realcore/controlling').trim();
+const APEX_USERNAME = (process.env.APEX_USERNAME || '').trim();
+const APEX_PASSWORD = (process.env.APEX_PASSWORD || '').trim();
+// In-memory overrides editable via API (will be persisted to disk best-effort)
 const APEX_OVERRIDES = { username: '', password: '' };
+// Persist helpers
+async function loadPersistedApex() {
+  try {
+    const [{ default: path }, fs] = await Promise.all([import('path'), import('fs/promises')])
+    const { fileURLToPath } = await import('url')
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = path.dirname(__filename)
+    const configDir = path.resolve(__dirname, '../data')
+    const configPath = path.join(configDir, 'config.json')
+    // read file if exists
+    let raw
+    try { raw = await fs.readFile(configPath, 'utf8') } catch (_) { return }
+    const json = JSON.parse(raw || '{}')
+    if (json?.apex) {
+      if (typeof json.apex.username === 'string') APEX_OVERRIDES.username = json.apex.username
+      if (typeof json.apex.password === 'string') APEX_OVERRIDES.password = json.apex.password
+    }
+    // Load SMTP persisted settings, but only for fields not provided via ENV
+    if (json?.smtp) {
+      if (typeof json.smtp.host === 'string' && !process.env.SMTP_HOST) SMTP_CONFIG.host = json.smtp.host
+      if (typeof json.smtp.port === 'number' && !process.env.SMTP_PORT) SMTP_CONFIG.port = json.smtp.port
+      if (typeof json.smtp.secure === 'boolean' && !process.env.SMTP_SECURE) SMTP_CONFIG.secure = json.smtp.secure
+      if (typeof json.smtp.user === 'string' && !process.env.SMTP_USER) SMTP_CONFIG.user = json.smtp.user
+      if (typeof json.smtp.pass === 'string' && !process.env.SMTP_PASS) SMTP_CONFIG.pass = json.smtp.pass
+      if (typeof json.smtp.defaultRecipient === 'string' && !process.env.SMTP_DEFAULT_RECIPIENT) SMTP_CONFIG.defaultRecipient = json.smtp.defaultRecipient
+      if (typeof json.smtp.from === 'string' && !process.env.SMTP_FROM) SMTP_CONFIG.from = json.smtp.from
+    }
+  } catch (_) { /* ignore */ }
+}
+
+async function savePersistedApex() {
+  try {
+    const [{ default: path }, fs, fsn] = await Promise.all([import('path'), import('fs'), import('fs/promises')])
+    const { fileURLToPath } = await import('url')
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = path.dirname(__filename)
+    const configDir = path.resolve(__dirname, '../data')
+    const configPath = path.join(configDir, 'config.json')
+    if (!fs.existsSync(configDir)) await fsn.mkdir(configDir, { recursive: true })
+    let existing = {}
+    try { existing = JSON.parse(await fsn.readFile(configPath, 'utf8')) } catch (_) { existing = {} }
+    existing.apex = { username: APEX_OVERRIDES.username || '', password: APEX_OVERRIDES.password || '' }
+    // persist SMTP as well
+    existing.smtp = {
+      host: SMTP_CONFIG.host,
+      port: SMTP_CONFIG.port,
+      secure: SMTP_CONFIG.secure,
+      user: SMTP_CONFIG.user,
+      pass: SMTP_CONFIG.pass || '',
+      defaultRecipient: SMTP_CONFIG.defaultRecipient || '',
+      from: SMTP_CONFIG.from || ''
+    }
+    await fsn.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf8')
+  } catch (_) { /* ignore */ }
+}
+
+// kick off load (best-effort); merge with env defaults
+loadPersistedApex();
 
 const DEFAULT_UNIT = process.env.DEFAULT_UNIT || 'h0zDeGnQIgfY3px';
 const DEFAULT_DATUM_VON = process.env.DEFAULT_DATUM_VON || '2024-10-01T00:00:00Z';
 const DEFAULT_DATUM_BIS = process.env.DEFAULT_DATUM_BIS || '2025-05-30T00:00:00Z';
 
-// O365 / Microsoft Graph mail config (set in server/.env)
-const O365 = {
-  tenantId: process.env.O365_TENANT_ID || '',
-  clientId: process.env.O365_CLIENT_ID || '',
-  clientSecret: process.env.O365_CLIENT_SECRET || '',
-  senderUpn: process.env.O365_SENDER_UPN || '', // e.g. techhub@realcore.de
-  defaultRecipient: process.env.O365_DEFAULT_RECIPIENT || '',
-};
-
-// Simple in-memory token cache
-const graphTokenCache = { accessToken: null, expiresAt: 0 };
+// SMTP mail config (Strato defaults; can be overridden at runtime and persisted)
+const SMTP_CONFIG = {
+  host: (process.env.SMTP_HOST || 'smtp.strato.de').trim(),
+  port: Number(process.env.SMTP_PORT || 465),
+  secure: String(process.env.SMTP_SECURE || 'true').toLowerCase() === 'true',
+  user: (process.env.SMTP_USER || 'm.banner@futurestore.shop').trim(),
+  pass: (process.env.SMTP_PASS || '').trim(), // never expose via GET
+  defaultRecipient: (process.env.SMTP_DEFAULT_RECIPIENT || '').trim(),
+  from: (process.env.SMTP_FROM || 'm.banner@futurestore.shop').trim(),
+}
 
 // Normalize error payloads to a readable string
 function errMessage(e) {
@@ -61,51 +119,18 @@ function errMessage(e) {
 const DEBUG_MAIL = (process.env.DEBUG_MAIL || '').toLowerCase() === '1' || (process.env.DEBUG_MAIL || '').toLowerCase() === 'true'
 function logMail(...args){ if (DEBUG_MAIL) console.log('[MAIL]', ...args) }
 
-async function getGraphToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (graphTokenCache.accessToken && graphTokenCache.expiresAt - 60 > now) {
-    logMail('Using cached token, expiresAt=', graphTokenCache.expiresAt)
-    return graphTokenCache.accessToken;
-  }
-  if (!O365.tenantId || !O365.clientId || !O365.clientSecret) {
-    throw new Error('O365 env vars missing: set O365_TENANT_ID, O365_CLIENT_ID, O365_CLIENT_SECRET');
-  }
-  logMail('Fetching new token for tenant=', O365.tenantId, 'clientId=', O365.clientId)
-  const tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(O365.tenantId)}/oauth2/v2.0/token`;
-  const body = new URLSearchParams({
-    client_id: O365.clientId,
-    client_secret: O365.clientSecret,
-    grant_type: 'client_credentials',
-    scope: 'https://graph.microsoft.com/.default',
-  });
-  const resp = await axios.post(tokenUrl, body.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-  const { access_token, expires_in } = resp.data || {};
-  if (!access_token) throw new Error('Failed to obtain Graph access token');
-  graphTokenCache.accessToken = access_token;
-  graphTokenCache.expiresAt = now + Number(expires_in || 3600);
-  logMail('Token acquired, ttl(s)=', expires_in)
-  return access_token;
-}
-
-async function sendGraphMail({ to, subject, html, text }) {
-  if (!O365.senderUpn) throw new Error('O365_SENDER_UPN is not configured');
-  const token = await getGraphToken();
-  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(O365.senderUpn)}/sendMail`;
-  const content = html ? { contentType: 'HTML', content: html } : { contentType: 'Text', content: text || '' };
+async function sendSmtpMail({ to, subject, html, text }) {
+  const transport = nodemailer.createTransport({
+    host: SMTP_CONFIG.host,
+    port: SMTP_CONFIG.port,
+    secure: SMTP_CONFIG.secure,
+    auth: SMTP_CONFIG.user && (SMTP_CONFIG.pass || '').length > 0 ? { user: SMTP_CONFIG.user, pass: SMTP_CONFIG.pass } : undefined,
+  })
+  const from = SMTP_CONFIG.from || SMTP_CONFIG.user
   const toList = (Array.isArray(to) ? to : [to]).filter(Boolean)
-  const payload = {
-    message: {
-      subject: subject || 'No subject',
-      body: content,
-      toRecipients: toList.map((addr) => ({ emailAddress: { address: addr } })),
-      from: { emailAddress: { address: O365.senderUpn } },
-      sender: { emailAddress: { address: O365.senderUpn } },
-    },
-    saveToSentItems: true,
-  };
-  logMail('Sending mail', { from: O365.senderUpn, to: toList, subject: subject || 'No subject' })
-  const resp = await axios.post(url, payload, { headers: { Authorization: `Bearer ${token}` } });
-  logMail('Graph sendMail status=', resp.status)
+  logMail('SMTP send', { host: SMTP_CONFIG.host, port: SMTP_CONFIG.port, secure: SMTP_CONFIG.secure, from, to: toList, subject })
+  const resp = await transport.sendMail({ from, to: toList.join(','), subject: subject || 'No subject', html, text })
+  logMail('SMTP response', resp?.accepted)
 }
 
 // Units configuration: comma-separated list of ext_ids in env or fallback defaults
@@ -128,9 +153,9 @@ if (!APEX_USERNAME || !APEX_PASSWORD) {
 }
 
 function authHeader(req) {
-  // Prefer API overrides, then session credentials, then env
-  const u = (APEX_OVERRIDES.username || req?.session?.apexUser || APEX_USERNAME);
-  const p = (APEX_OVERRIDES.password || req?.session?.apexPass || APEX_PASSWORD);
+  // Prefer environment credentials first (stable across deploys), then overrides, then session
+  const u = (APEX_USERNAME || APEX_OVERRIDES.username || req?.session?.apexUser);
+  const p = (APEX_PASSWORD || APEX_OVERRIDES.password || req?.session?.apexPass);
   if (!u || !p) return {};
   const token = Buffer.from(`${u}:${p}`).toString('base64');
   return { Authorization: `Basic ${token}` };
@@ -181,33 +206,36 @@ app.get('/api/health', (req, res) => {
 // --- Mail endpoints (O365 / Microsoft Graph) ---
 app.get('/api/mail/settings', (req, res) => {
   res.json({
-    tenantId: O365.tenantId || '',
-    clientId: O365.clientId || '',
-    clientSecret: O365.clientSecret ? '********' : '',
-    senderUpn: O365.senderUpn || '',
-    defaultRecipient: O365.defaultRecipient || '',
+    host: SMTP_CONFIG.host,
+    port: SMTP_CONFIG.port,
+    secure: SMTP_CONFIG.secure,
+    user: SMTP_CONFIG.user,
+    pass: SMTP_CONFIG.pass ? '********' : '',
+    defaultRecipient: SMTP_CONFIG.defaultRecipient || '',
+    from: SMTP_CONFIG.from || '',
   })
 })
 
 app.post('/api/mail/settings', (req, res) => {
-  const { tenantId, clientId, clientSecret, senderUpn, defaultRecipient } = req.body || {}
-  if (typeof tenantId === 'string') O365.tenantId = tenantId
-  if (typeof clientId === 'string') O365.clientId = clientId
-  if (typeof senderUpn === 'string') O365.senderUpn = senderUpn
-  if (typeof defaultRecipient === 'string') O365.defaultRecipient = defaultRecipient
-  if (typeof clientSecret === 'string' && clientSecret.trim()) O365.clientSecret = clientSecret
-  // invalidate token cache
-  graphTokenCache.accessToken = null; graphTokenCache.expiresAt = 0
-  logMail('Mail settings updated', { tenantId: O365.tenantId, clientId: O365.clientId, senderUpn: O365.senderUpn, defaultRecipient: O365.defaultRecipient, clientSecret: O365.clientSecret ? '***' : '' })
+  const { host, port, secure, user, pass, defaultRecipient, from } = req.body || {}
+  if (typeof host === 'string') SMTP_CONFIG.host = host
+  if (typeof port === 'number') SMTP_CONFIG.port = port
+  if (typeof secure === 'boolean') SMTP_CONFIG.secure = secure
+  if (typeof user === 'string') SMTP_CONFIG.user = user
+  if (typeof defaultRecipient === 'string') SMTP_CONFIG.defaultRecipient = defaultRecipient
+  if (typeof from === 'string') SMTP_CONFIG.from = from
+  if (typeof pass === 'string' && pass.trim()) SMTP_CONFIG.pass = pass
+  savePersistedApex().finally(() => {})
+  logMail('SMTP settings updated', { host: SMTP_CONFIG.host, port: SMTP_CONFIG.port, secure: SMTP_CONFIG.secure, user: SMTP_CONFIG.user, defaultRecipient: SMTP_CONFIG.defaultRecipient, from: SMTP_CONFIG.from, pass: SMTP_CONFIG.pass ? '***' : '' })
   res.json({ ok: true })
 })
 
 app.post('/api/mail/send', async (req, res) => {
   try {
     const { to, subject, html, text } = req.body || {};
-    const recipient = to || O365.defaultRecipient;
-    if (!recipient) return res.status(400).json({ error: true, message: 'Recipient missing. Provide `to` or set O365_DEFAULT_RECIPIENT.' });
-    await sendGraphMail({ to: recipient, subject, html, text });
+    const recipient = to || SMTP_CONFIG.defaultRecipient;
+    if (!recipient) return res.status(400).json({ error: true, message: 'Recipient missing. Provide `to` or configure defaultRecipient.' });
+    await sendSmtpMail({ to: recipient, subject, html, text });
     res.json({ ok: true });
   } catch (e) {
     const status = e.response?.status || 500;
@@ -218,10 +246,10 @@ app.post('/api/mail/send', async (req, res) => {
 app.post('/api/mail/test', async (req, res) => {
   try {
     const { to } = req.body || {};
-    const recipient = to || O365.defaultRecipient;
-    if (!recipient) return res.status(400).json({ error: true, message: 'Recipient missing. Provide `to` or set O365_DEFAULT_RECIPIENT.' });
+    const recipient = to || SMTP_CONFIG.defaultRecipient;
+    if (!recipient) return res.status(400).json({ error: true, message: 'Recipient missing. Provide `to` or configure defaultRecipient.' });
     const now = new Date().toISOString();
-    await sendGraphMail({
+    await sendSmtpMail({
       to: recipient,
       subject: `Testmail · Realcore Dashboard · ${now}`,
       html: `<p>Dies ist eine Test-E-Mail aus dem Realcore Dashboard.</p><p>Zeitstempel: <code>${now}</code></p>`,
@@ -236,19 +264,25 @@ app.post('/api/mail/test', async (req, res) => {
 
 // --- APEX credential settings ---
 app.get('/api/apex/settings', (req, res) => {
-  res.json({
-    username: APEX_OVERRIDES.username || APEX_USERNAME || '',
-    password: (APEX_OVERRIDES.password || APEX_PASSWORD) ? '********' : '',
-    source: APEX_OVERRIDES.username ? 'override' : (APEX_USERNAME ? 'env' : 'unset'),
-  })
+  const effectiveUser = APEX_USERNAME || APEX_OVERRIDES.username || ''
+  const effectivePassSet = !!(APEX_PASSWORD || APEX_OVERRIDES.password)
+  const source = APEX_USERNAME ? 'env' : (APEX_OVERRIDES.username ? 'override' : 'unset')
+  res.json({ username: effectiveUser, password: effectivePassSet ? '********' : '', source })
 })
 
 app.post('/api/apex/settings', (req, res) => {
-  const { username, password } = req.body || {}
-  if (typeof username === 'string') APEX_OVERRIDES.username = username
-  if (typeof password === 'string' && password.trim()) APEX_OVERRIDES.password = password
+  const { username, password, useEnv } = req.body || {}
+  if (useEnv === true) {
+    // Clear overrides to fall back to environment variables
+    APEX_OVERRIDES.username = ''
+    APEX_OVERRIDES.password = ''
+  } else {
+    if (typeof username === 'string') APEX_OVERRIDES.username = username
+    if (typeof password === 'string' && password.trim()) APEX_OVERRIDES.password = password
+  }
   // Clear session creds to avoid confusion
   if (req.session) { req.session.apexUser = undefined; req.session.apexPass = undefined }
+  savePersistedApex().finally(() => {})
   res.json({ ok: true })
 })
 

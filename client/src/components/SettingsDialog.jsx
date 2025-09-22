@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getMailSettings, updateMailSettings, sendMailTest, getApexSettings, updateApexSettings, testApex } from '../lib/api'
 
-const USER_DEFAULTS = {
-  senderUpn: 'techhub@realcore.de',
-  defaultRecipient: 'techhub@realcore.de',
+const SMTP_DEFAULTS = {
+  host: 'smtp.strato.de',
+  port: 465,
+  secure: true,
+  user: 'm.banner@futurestore.shop',
+  from: 'm.banner@futurestore.shop',
 }
 
 export default function SettingsDialog({ onClose }) {
@@ -21,11 +24,13 @@ export default function SettingsDialog({ onClose }) {
     apexUsername: '',
     apexPassword: '',
     apexSource: '',
-    // Mail
-    tenantId: '',
-    clientId: '',
-    clientSecret: '',
-    senderUpn: '',
+    // Mail (SMTP)
+    host: SMTP_DEFAULTS.host,
+    port: SMTP_DEFAULTS.port,
+    secure: SMTP_DEFAULTS.secure,
+    user: SMTP_DEFAULTS.user,
+    pass: '',
+    from: SMTP_DEFAULTS.from,
     defaultRecipient: '',
     testTo: '',
   })
@@ -42,13 +47,15 @@ export default function SettingsDialog({ onClose }) {
           apexUsername: apex?.username || '',
           apexPassword: '', // never prefill
           apexSource: apex?.source || '',
-          // Mail
-          tenantId: mail?.tenantId || '',
-          clientId: mail?.clientId || '',
-          clientSecret: '', // never prefill; user must type to change
-          senderUpn: mail?.senderUpn || USER_DEFAULTS.senderUpn,
-          defaultRecipient: mail?.defaultRecipient || USER_DEFAULTS.defaultRecipient,
-          testTo: mail?.defaultRecipient || USER_DEFAULTS.defaultRecipient,
+          // Mail (SMTP)
+          host: mail?.host || SMTP_DEFAULTS.host,
+          port: Number(mail?.port ?? SMTP_DEFAULTS.port),
+          secure: typeof mail?.secure === 'boolean' ? mail.secure : SMTP_DEFAULTS.secure,
+          user: mail?.user || SMTP_DEFAULTS.user,
+          pass: '',
+          from: mail?.from || SMTP_DEFAULTS.from,
+          defaultRecipient: mail?.defaultRecipient || '',
+          testTo: mail?.defaultRecipient || '',
         }))
       } catch (e) {
         if (!cancelled) setError(e?.response?.data?.message || e.message)
@@ -68,12 +75,14 @@ export default function SettingsDialog({ onClose }) {
     setOkMsg('')
     try {
       const payload = {
-        tenantId: form.tenantId,
-        clientId: form.clientId,
-        senderUpn: form.senderUpn,
+        host: form.host,
+        port: Number(form.port) || SMTP_DEFAULTS.port,
+        secure: !!form.secure,
+        user: form.user,
         defaultRecipient: form.defaultRecipient,
+        from: form.from,
       }
-      if ((form.clientSecret || '').trim()) payload.clientSecret = form.clientSecret
+      if ((form.pass || '').trim()) payload.pass = form.pass
       await updateMailSettings(payload)
       setOkMsg('Gespeichert')
     } catch (e) {
@@ -94,6 +103,27 @@ export default function SettingsDialog({ onClose }) {
       setApexMsg('APEX Zugang gespeichert')
       // clear password field after save
       setForm(f => ({ ...f, apexPassword: '' }))
+    } catch (e) {
+      setError(e?.response?.data?.message || e.message)
+    } finally {
+      setSavingApex(false)
+    }
+  }
+
+  async function useEnvApex() {
+    setSavingApex(true)
+    setError('')
+    setApexMsg('')
+    try {
+      await updateApexSettings({ useEnv: true })
+      const s = await getApexSettings()
+      setForm(f => ({
+        ...f,
+        apexUsername: s?.username || '',
+        apexPassword: '',
+        apexSource: s?.source || 'env',
+      }))
+      setApexMsg('Umgebungswerte aktiv')
     } catch (e) {
       setError(e?.response?.data?.message || e.message)
     } finally {
@@ -149,15 +179,16 @@ export default function SettingsDialog({ onClose }) {
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                 <Labeled label="Benutzername">
-                  <input className="input" value={form.apexUsername} onChange={(e)=>update('apexUsername', e.target.value)} placeholder="APEX User" />
+                  <input className="input" value={form.apexUsername} onChange={(e)=>update('apexUsername', e.target.value)} placeholder="APEX User" disabled={form.apexSource==='env'} />
                 </Labeled>
                 <Labeled label="Passwort (neu setzen)">
-                  <input className="input" type="password" value={form.apexPassword} onChange={(e)=>update('apexPassword', e.target.value)} placeholder="••••••••" />
+                  <input className="input" type="password" value={form.apexPassword} onChange={(e)=>update('apexPassword', e.target.value)} placeholder="••••••••" disabled={form.apexSource==='env'} />
                 </Labeled>
               </div>
               <div style={{ display:'flex', gap:8, marginTop:12 }}>
-                <button className="btn" onClick={saveApex} disabled={savingApex}>{savingApex? 'Speichere…' : 'APEX speichern'}</button>
+                <button className="btn" onClick={saveApex} disabled={savingApex || form.apexSource==='env'}>{savingApex? 'Speichere…' : 'APEX speichern'}</button>
                 <div style={{ flex:1 }} />
+                <button className="btn" onClick={useEnvApex} disabled={savingApex || form.apexSource==='env'}>Umgebungswerte nutzen</button>
                 <button className="btn" onClick={testApexConn} disabled={testingApex}>{testingApex? 'Teste…' : 'APEX Test'}</button>
               </div>
               {apexMsg && <div style={{ color:'var(--muted)', marginTop:8 }}>{apexMsg}</div>}
@@ -165,18 +196,27 @@ export default function SettingsDialog({ onClose }) {
 
             <div className="panel" style={{ padding: 12 }}>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <Labeled label="Tenant ID">
-                  <input className="input" value={form.tenantId} onChange={(e)=>update('tenantId', e.target.value)} placeholder="z.B. 99c7d5a2-..." />
+                <Labeled label="SMTP Host">
+                  <input className="input" value={form.host} onChange={(e)=>update('host', e.target.value)} placeholder="smtp.strato.de" />
                 </Labeled>
-                <Labeled label="Client ID">
-                  <input className="input" value={form.clientId} onChange={(e)=>update('clientId', e.target.value)} placeholder="z.B. 35c00140-..." />
+                <Labeled label="Port">
+                  <input className="input" type="number" value={form.port} onChange={(e)=>update('port', Number(e.target.value))} placeholder="465" />
                 </Labeled>
-                <Labeled label="Client Secret">
-                  <input className="input" type="text" value={form.clientSecret} onChange={(e)=>update('clientSecret', e.target.value)} placeholder="geheim" />
+                <Labeled label="TLS/SSL (secure)">
+                  <select className="input" value={form.secure? 'true':'false'} onChange={(e)=>update('secure', e.target.value==='true')}>
+                    <option value="true">Ja (465)</option>
+                    <option value="false">Nein (587 STARTTLS)</option>
+                  </select>
                 </Labeled>
                 <div />
-                <Labeled label="Sender (UPN)">
-                  <input className="input" value={form.senderUpn} onChange={(e)=>update('senderUpn', e.target.value)} placeholder="techhub@realcore.de" />
+                <Labeled label="Benutzer (E-Mail)">
+                  <input className="input" value={form.user} onChange={(e)=>update('user', e.target.value)} placeholder="m.banner@futurestore.shop" />
+                </Labeled>
+                <Labeled label="Passwort">
+                  <input className="input" type="password" value={form.pass} onChange={(e)=>update('pass', e.target.value)} placeholder="••••••••" />
+                </Labeled>
+                <Labeled label="From">
+                  <input className="input" value={form.from} onChange={(e)=>update('from', e.target.value)} placeholder="m.banner@futurestore.shop" />
                 </Labeled>
                 <Labeled label="Standard-Empfänger">
                   <input className="input" value={form.defaultRecipient} onChange={(e)=>update('defaultRecipient', e.target.value)} placeholder="test@beispiel.de" />
@@ -191,7 +231,7 @@ export default function SettingsDialog({ onClose }) {
               {error && <div style={{ color:'crimson', marginTop:8, whiteSpace:'pre-wrap' }}>Fehler: {String(error)}</div>}
               {okMsg && <div style={{ color:'var(--muted)', marginTop:8 }}>{okMsg}</div>}
             </div>
-            <small style={{ color:'var(--muted)' }}>Hinweis: Diese Einstellungen werden zur Laufzeit im Server aktualisiert. Lege sie zusätzlich in <code>server/.env</code> ab, um sie dauerhaft zu machen.</small>
+            <small style={{ color:'var(--muted)' }}>Hinweis: Diese Einstellungen werden zur Laufzeit im Server aktualisiert und in <code>server/data/config.json</code> persistiert. Lege sie zusätzlich als Render-ENV (<code>SMTP_*</code>) ab, um sie über Deployments hinweg sicher zu setzen.</small>
           </div>
         )}
       </div>
