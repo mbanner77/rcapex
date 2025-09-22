@@ -462,7 +462,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       { label: 'Kunde', w: 2, value: (r) => pickText(r, ['KUNDE','kunde']) },
       { label: 'Stunden', w: 1, align: 'right', value: (r) => formatNumber(r.__val) },
     ]
-    const groups = groupByKunde(items)
+    const groups = groupByKunde(dataRows)
     let running = 0
     for (const [kunde, rows] of groups) {
       doc.fontSize(12).fillColor('#222').text(kunde, { continued:false })
@@ -653,18 +653,14 @@ app.post('/api/reports/debug', async (req, res) => {
     const range = computeRange(preset)
     const type = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
     const items = await getAggregatedItems({ type, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
-    // compute quick total
-    const normalize = (v) => {
-      if (typeof v === 'string') return Number(v.replace(/\./g,'').replace(',', '.')) || 0
-      return Number(v||0)
-    }
-    let total = 0
-    if (type === 'umsatzliste') {
-      for (const r of items) total += normalize(r?.UMSATZ ?? r?.umsatz ?? 0)
-    } else {
-      for (const r of items) total += normalize(r?.STUNDEN ?? r?.stunden ?? 0)
-    }
-    res.json({ ok: true, count: items.length, total, sample: items.slice(0, 25) })
+    const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }
+    const rowValue = (r)=> type==='umsatzliste'
+      ? toNumber(r?.UMSATZ ?? r?.umsatz ?? r?.BETRAG ?? r?.betrag ?? r?.SUMME ?? r?.summe ?? r?.NETTO ?? r?.netto ?? r?.WERT ?? r?.wert ?? 0)
+      : toNumber(r?.stunden_gel ?? r?.stunden_fakt ?? r?.STD_GELEISTET ?? r?.STD_FAKTURIERT ?? r?.std_geleistet ?? r?.std_fakturiert ?? r?.STUNDEN ?? r?.stunden ?? r?.ZEIT ?? r?.zeit ?? r?.HOURS ?? r?.hours ?? 0)
+    const mapped = items.map(r => ({ ...r, __val: rowValue(r) }))
+    const nonZero = mapped.filter(r => r.__val > 0)
+    const total = nonZero.reduce((a,r)=>a + r.__val, 0)
+    res.json({ ok: true, count: items.length, countNonZero: nonZero.length, total, sample: mapped.slice(0, 25) })
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });
