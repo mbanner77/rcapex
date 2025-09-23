@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { UNITS } from './constants'
+import { getUnits } from './constants'
 
 axios.defaults.withCredentials = true
 
@@ -12,7 +12,7 @@ export async function fetchStunden({ datum_von, datum_bis, unit }) {
     const items = Array.isArray(res.data?.items) ? res.data.items : (Array.isArray(res.data) ? res.data : [])
     if (items.length > 0) return res.data
     // Fallback: client-side union across known units
-    const units = (UNITS || []).map(u => u.ext_id)
+    const units = (getUnits() || []).map(u => u.ext_id)
     const results = await Promise.all(units.map(ext_id => axios.get('/api/stunden', { params: { datum_von, datum_bis, unit: ext_id } }).then(r => ({ unit: ext_id, data: r.data }))))
     const merged = []
     for (const r of results) {
@@ -32,7 +32,7 @@ export async function fetchUmsatzliste({ datum_von, datum_bis, unit }) {
     const res = await axios.get('/api/umsatzliste', { params })
     const items = Array.isArray(res.data?.items) ? res.data.items : (Array.isArray(res.data) ? res.data : [])
     if (items.length > 0) return res.data
-    const units = (UNITS || []).map(u => u.ext_id)
+    const units = (getUnits() || []).map(u => u.ext_id)
     const results = await Promise.all(units.map(ext_id => axios.get('/api/umsatzliste', { params: { datum_von, datum_bis, unit: ext_id } }).then(r => ({ unit: ext_id, data: r.data }))))
     const merged = []
     for (const r of results) {

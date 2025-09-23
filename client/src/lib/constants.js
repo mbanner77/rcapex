@@ -1,4 +1,4 @@
-export const UNITS = [
+export const DEFAULT_UNITS = [
   { id: 1, ext_id: 'zaE22GlNK6AZfBc', name: 'SAP CWS' },
   { id: 2, ext_id: 'YytRDIbdYtOVax8', name: 'SAP ABAP' },
   { id: 3, ext_id: 'VUmfO9SS3wXt2iB', name: 'SAP PI/PO' },
@@ -6,5 +6,16 @@ export const UNITS = [
   { id: 5, ext_id: 'YtK84kUP26b7bMw', name: 'RCC Transformation' },
   { id: 6, ext_id: 'eQnsTZhPu8GPFUm', name: 'RCC Architecture' },
 ]
+
+export function getUnits(){
+  try{
+    const raw = localStorage.getItem('units_override')
+    if (raw){
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr) && arr.every(u=>u && u.ext_id && u.name)) return arr
+    }
+  }catch(_){ /* ignore */ }
+  return DEFAULT_UNITS
+}
 
 export const LOGO_URL = 'https://realcore.info/bilder/rc-logo.png'

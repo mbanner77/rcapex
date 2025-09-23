@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf } from '../lib/api'
-import { UNITS } from '../lib/constants'
+import { getUnits } from '../lib/constants'
 
 const DEFAULT = {
   id: '',
@@ -24,6 +24,7 @@ export default function ReportSchedules({ onClose }){
   const [form, setForm] = useState(DEFAULT)
   const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
   const [previewUrl, setPreviewUrl] = useState('')
+  const [units, setUnits] = useState(() => getUnits())
 
   useEffect(() => {
     let cancelled = false
@@ -43,6 +44,12 @@ export default function ReportSchedules({ onClose }){
     }
     load();
     return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    const onUnits = () => setUnits(getUnits())
+    window.addEventListener('units_changed', onUnits)
+    return () => window.removeEventListener('units_changed', onUnits)
   }, [])
 
   function edit(item){
@@ -240,7 +247,7 @@ export default function ReportSchedules({ onClose }){
                 <Labeled label="Unit">
                   <select className="input" value={form.unit} onChange={(e)=>update('unit', e.target.value)}>
                     <option value="ALL">ALL</option>
-                    {UNITS.map(u => (
+                    {units.map(u => (
                       <option key={u.ext_id} value={u.ext_id}>{u.name} ({u.ext_id})</option>
                     ))}
                   </select>

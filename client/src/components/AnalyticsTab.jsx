@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react'
-import { UNITS } from '../lib/constants'
 import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import {
@@ -41,10 +40,11 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const [project, setProject] = useState('') // filter by projectcode in TS
   const [dimension, setDimension] = useState('customer') // 'customer' | 'project' | 'employee'
   const [stacked, setStacked] = useState(false)
-  const [unitSel, setUnitSel] = useState('ALL') // for per-employee stacked view
   const [query, setQuery] = useState('') // filter employees/projects
   const [displayMode, setDisplayMode] = useState('both') // 'percent' | 'hours' | 'both'
   const [labelThreshold, setLabelThreshold] = useState(6) // min % for inline labels
+  const [sortMode, setSortMode] = useState('hours_desc') // 'hours_desc' | 'alpha'
+  const [limitCount, setLimitCount] = useState(0) // 0 = all
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -135,17 +135,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     datasets: [{ label: metric === 'stunden_fakt' ? 'Fakturiert' : 'Geleistet', data: employeesTop.map((e) => e.sum), backgroundColor: 'rgba(99, 102, 241, 0.7)', borderRadius: 6 }]
   }), [employeesTop, metric])
 
-  // --- New: Per-employee stacked bars per unit (workload share per project) ---
-  const unitName = (id) => {
-    const m = new Map(UNITS.map(u => [u.ext_id, u.name]))
-    return m.get(id) || id || 'ALL'
-  }
-
-  const itemsForUnit = useMemo(() => {
-    const items0 = items
-    if (!unitSel || unitSel === 'ALL') return items0
-    return items0.filter(r => (r.__unit || unitSel) === unitSel)
-  }, [items, unitSel])
+  // --- Per-employee stacked bars (workload share per project) ---
+  // Unit filter removed; always use all items
+  const itemsForUnit = useMemo(() => items, [items])
 
   const empStacked = useMemo(() => {
     // Build emp -> project -> sum(metric)
@@ -183,7 +175,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     })
     if (other.some(v=>v>0)) datasets.push({ label: 'Andere', data: other, backgroundColor: '#9ca3af' })
     return { labels, datasets }
-  }, [itemsForUnit, metric])
+  }, [itemsForUnit, metric, sortMode])
 
   // Aggregation per Mitarbeiter+Projekt (no per-day rows)
   const aggEmpProj = useMemo(() => {
@@ -220,8 +212,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     }
     const rows = []
     // Rank employees by total, include all (descending)
-    const order = Array.from(empMap.entries()).map(([e, pm]) => [e, Array.from(pm.values()).reduce((a,b)=>a+b,0)])
-    order.sort((a,b)=>b[1]-a[1])
+    let order = Array.from(empMap.entries()).map(([e, pm]) => [e, Array.from(pm.values()).reduce((a,b)=>a+b,0)])
+    if (sortMode === 'alpha') order.sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+    else order.sort((a,b)=>b[1]-a[1])
     const allEmps = order.map(x=>x[0])
     for (const emp of allEmps) {
       const pm = empMap.get(emp) || new Map()
@@ -263,16 +256,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     <div className="grid">
       {/* First: Full-width segmented visualization with filter */}
       <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+        <div style={{ position:'sticky', top:0, zIndex:1, background:'var(--panel)', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, paddingBottom:8 }}>
           <strong>Auslastung (pro Mitarbeiter · pro Projekt) – Prozentuale Verteilung</strong>
           <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-            <label style={{ color:'var(--muted)', fontSize:12 }}>Unit</label>
-            <select className="input" value={unitSel} onChange={(e)=>setUnitSel(e.target.value)}>
-              <option value="ALL">Alle</option>
-              {UNITS.map(u => (
-                <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
-              ))}
-            </select>
             <label style={{ color:'var(--muted)', fontSize:12 }}>Metrik</label>
             <select className="input" value={metric} onChange={(e)=>setMetric(e.target.value)}>
               <option value="stunden_fakt">Stunden fakturiert</option>
@@ -287,6 +273,13 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
             <label style={{ color:'var(--muted)', fontSize:12 }}>min. %</label>
             <input className="input" type="number" min="0" max="20" value={labelThreshold} onChange={(e)=>setLabelThreshold(Math.max(0, Math.min(20, Number(e.target.value)||0)))} style={{ width:72 }} />
             <input className="input" placeholder="Suchen (Mitarbeiter/Projekt)" value={query} onChange={(e)=>setQuery(e.target.value)} style={{ width: 260 }} />
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Sortierung</label>
+            <select className="input" value={sortMode} onChange={(e)=>setSortMode(e.target.value)}>
+              <option value="hours_desc">Stunden (absteigend)</option>
+              <option value="alpha">Mitarbeiter A→Z</option>
+            </select>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Limit</label>
+            <input className="input" type="number" min="0" max="5000" value={limitCount} onChange={(e)=>setLimitCount(Math.max(0, Math.min(5000, Number(e.target.value)||0)))} style={{ width:90 }} title="0 = alle" />
           </div>
         </div>
         {/* Legend */}
@@ -299,16 +292,16 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           ))}
         </div>
         <div style={{ display:'grid', gap:14 }}>
-          {filteredEmpSegments.map((row, idx) => (
+          {(limitCount>0 ? filteredEmpSegments.slice(0, limitCount) : filteredEmpSegments).map((row, idx) => (
             <div key={idx} style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:10, alignItems:'center' }}>
               <div style={{ color:'var(--fg)' }}>{row.employee}</div>
-              <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:8, overflow:'hidden', background:'var(--bg)' }}>
+              <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:12, overflow:'hidden', background:'var(--bg)', boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.25)' }}>
                 {row.segments.map((seg, sidx) => {
                   const pct = Math.round(seg.pct * 100)
                   const hours = seg.val.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                   const showText = pct >= Number(labelThreshold)
                   return (
-                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colorForProject(seg.name), color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:4, padding:'6px 4px' }}>
+                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colorForProject(seg.name), color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:8, padding:'6px 4px' }}>
                       {showText && (
                         <span style={{ fontSize:12, fontWeight:600, textShadow:'0 1px 2px rgba(0,0,0,0.35)', textAlign:'center' }}>
                           {displayMode==='percent' ? `${pct}% ${seg.name}` : displayMode==='hours' ? `${hours} h ${seg.name}` : `${pct}% ${seg.name} · ${hours} h`}
@@ -361,20 +354,13 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
         <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
           <strong>Auslastung je Mitarbeiter (gestapelt)</strong>
           <div style={{ flex:1 }} />
-          <label style={{ color:'var(--muted)', fontSize:12 }}>Unit</label>
-          <select className="input" value={unitSel} onChange={(e)=>setUnitSel(e.target.value)}>
-            <option value="ALL">Alle</option>
-            {UNITS.map(u => (
-              <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
-            ))}
-          </select>
           <label style={{ color:'var(--muted)', fontSize:12 }}>Metrik</label>
           <select className="input" value={metric} onChange={(e)=>setMetric(e.target.value)}>
             <option value="stunden_fakt">Stunden fakturiert</option>
             <option value="stunden_gel">Stunden geleistet</option>
           </select>
         </div>
-        <Bar data={empStacked} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter – ${unitSel==='ALL'?'Alle Units':unitName(unitSel)}` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }} />
+        <Bar data={empStacked} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }} />
       </div>
       <div className="panel" style={{ padding: 12 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>

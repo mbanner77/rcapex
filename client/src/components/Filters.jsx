@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react'
-import { UNITS } from '../lib/constants'
+import React, { useMemo, useState, useEffect } from 'react'
+import { getUnits } from '../lib/constants'
 
 export default function Filters({ params, onParamsChange }) {
   function update(key, value) {
@@ -7,7 +7,13 @@ export default function Filters({ params, onParamsChange }) {
   }
 
   const [useCustomUnit, setUseCustomUnit] = useState(false)
-  const unitOptions = useMemo(() => UNITS, [])
+  const [units, setUnits] = useState(() => getUnits())
+  useEffect(() => {
+    const onUnits = () => setUnits(getUnits())
+    window.addEventListener('units_changed', onUnits)
+    return () => window.removeEventListener('units_changed', onUnits)
+  }, [])
+  const unitOptions = useMemo(() => units, [units])
   const selectedUnit = useMemo(() => {
     if (params.unit === 'ALL') return 'ALL'
     return unitOptions.find(u => u.ext_id === params.unit)?.ext_id || ''

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getMailSettings, updateMailSettings, sendMailTest, getApexSettings, updateApexSettings, testApex } from '../lib/api'
+import { getUnits, DEFAULT_UNITS } from '../lib/constants'
 
 const SMTP_DEFAULTS = {
   host: 'smtp.strato.de',
@@ -18,6 +19,7 @@ export default function SettingsDialog({ onClose }) {
   const [error, setError] = useState('')
   const [okMsg, setOkMsg] = useState('')
   const [apexMsg, setApexMsg] = useState('')
+  const [unitsMsg, setUnitsMsg] = useState('')
 
   const [form, setForm] = useState({
     // APEX
@@ -34,6 +36,9 @@ export default function SettingsDialog({ onClose }) {
     defaultRecipient: '',
     testTo: '',
   })
+
+  // Units editor state
+  const [unitsForm, setUnitsForm] = useState(() => getUnits())
 
   useEffect(() => {
     let cancelled = false
@@ -68,6 +73,31 @@ export default function SettingsDialog({ onClose }) {
   }, [])
 
   function update(key, value){ setForm((f)=>({ ...f, [key]: value })) }
+
+  // --- Units helpers ---
+  function addUnit(){ setUnitsForm((arr)=>[...arr, { id: Date.now(), ext_id: '', name: '' }]) }
+  function removeUnit(idx){ setUnitsForm((arr)=> arr.filter((_,i)=> i!==idx)) }
+  function updateUnit(idx, key, value){ setUnitsForm((arr)=> arr.map((u,i)=> i===idx ? { ...u, [key]: value } : u )) }
+  function resetUnits(){
+    setUnitsForm(DEFAULT_UNITS)
+    try{
+      localStorage.removeItem('units_override')
+      window.dispatchEvent(new Event('units_changed'))
+      setUnitsMsg('Units auf Standard zurückgesetzt')
+    }catch(e){ setUnitsMsg('Fehler beim Zurücksetzen: '+(e?.message||e)) }
+  }
+  function saveUnits(){
+    setUnitsMsg('')
+    // validate
+    const cleaned = (unitsForm||[]).map((u,idx)=>({ id: u.id || (idx+1), ext_id: String(u.ext_id||'').trim(), name: String(u.name||'').trim() }))
+    const valid = cleaned.filter(u => u.ext_id && u.name)
+    if (valid.length === 0) { setUnitsMsg('Bitte mindestens eine Unit mit Name und ext_id angeben.'); return }
+    try{
+      localStorage.setItem('units_override', JSON.stringify(valid))
+      window.dispatchEvent(new Event('units_changed'))
+      setUnitsMsg('Units gespeichert')
+    }catch(e){ setUnitsMsg('Fehler beim Speichern: '+(e?.message||e)) }
+  }
 
   async function save() {
     setSaving(true)
@@ -177,6 +207,35 @@ export default function SettingsDialog({ onClose }) {
                 <h4 style={{ margin:0 }}>APEX Zugang</h4>
                 <small style={{ color:'var(--muted)' }}>Quelle: {form.apexSource || 'unset'}</small>
               </div>
+
+            {/* Units Management */}
+            <div className="panel" style={{ padding: 12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <h4 style={{ margin:0 }}>Units verwalten</h4>
+                <small style={{ color:'var(--muted)' }}>Individuelle Liste für UI und Client-Aggregation</small>
+                <div style={{ flex:1 }} />
+                <button className="btn" onClick={addUnit}>+ Unit</button>
+              </div>
+              <div style={{ display:'grid', gap:8 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:8, color:'var(--muted)', fontSize:12 }}>
+                  <div>Name</div>
+                  <div>ext_id</div>
+                  <div>Aktion</div>
+                </div>
+                {unitsForm.map((u, idx) => (
+                  <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:8 }}>
+                    <input className="input" placeholder="z. B. SAP ABAP" value={u.name} onChange={(e)=>updateUnit(idx,'name', e.target.value)} />
+                    <input className="input" placeholder="ext_id" value={u.ext_id} onChange={(e)=>updateUnit(idx,'ext_id', e.target.value)} />
+                    <button className="btn" onClick={()=>removeUnit(idx)}>Löschen</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <button className="btn" onClick={saveUnits}>Units speichern</button>
+                <button className="btn" onClick={resetUnits}>Auf Standard zurücksetzen</button>
+                {unitsMsg && <div style={{ color:'var(--muted)' }}>{unitsMsg}</div>}
+              </div>
+            </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                 <Labeled label="Benutzername">
                   <input className="input" value={form.apexUsername} onChange={(e)=>update('apexUsername', e.target.value)} placeholder="APEX User" disabled={form.apexSource==='env'} />
