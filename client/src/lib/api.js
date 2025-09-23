@@ -13,11 +13,11 @@ export async function fetchStunden({ datum_von, datum_bis, unit }) {
     if (items.length > 0) return res.data
     // Fallback: client-side union across known units
     const units = (UNITS || []).map(u => u.ext_id)
-    const results = await Promise.all(units.map(ext_id => axios.get('/api/stunden', { params: { datum_von, datum_bis, unit: ext_id } }).then(r => r.data)))
+    const results = await Promise.all(units.map(ext_id => axios.get('/api/stunden', { params: { datum_von, datum_bis, unit: ext_id } }).then(r => ({ unit: ext_id, data: r.data }))))
     const merged = []
     for (const r of results) {
-      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
-      merged.push(...arr)
+      const arr = Array.isArray(r?.data?.items) ? r.data.items : (Array.isArray(r?.data) ? r.data : [])
+      merged.push(...arr.map(x => ({ ...x, __unit: r.unit })))
     }
     return { items: merged }
   }
@@ -33,11 +33,11 @@ export async function fetchUmsatzliste({ datum_von, datum_bis, unit }) {
     const items = Array.isArray(res.data?.items) ? res.data.items : (Array.isArray(res.data) ? res.data : [])
     if (items.length > 0) return res.data
     const units = (UNITS || []).map(u => u.ext_id)
-    const results = await Promise.all(units.map(ext_id => axios.get('/api/umsatzliste', { params: { datum_von, datum_bis, unit: ext_id } }).then(r => r.data)))
+    const results = await Promise.all(units.map(ext_id => axios.get('/api/umsatzliste', { params: { datum_von, datum_bis, unit: ext_id } }).then(r => ({ unit: ext_id, data: r.data }))))
     const merged = []
     for (const r of results) {
-      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
-      merged.push(...arr)
+      const arr = Array.isArray(r?.data?.items) ? r.data.items : (Array.isArray(r?.data) ? r.data : [])
+      merged.push(...arr.map(x => ({ ...x, __unit: r.unit })))
     }
     return { items: merged }
   }
