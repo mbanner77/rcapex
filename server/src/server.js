@@ -180,18 +180,19 @@ async function getAggregatedItems({ type, unit, datum_von, datum_bis }){
       const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
       const perHeaders = { ...baseHeaders, unit: u }
       const r = await axios.get(url, { headers: perHeaders })
-      results.push(r.data)
+      results.push({ unit: u, data: r.data })
     }
     for (const r of results) {
-      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
-      items.push(...arr)
+      const arr = Array.isArray(r?.data?.items) ? r.data.items : (Array.isArray(r?.data) ? r.data : [])
+      // annotate with __unit ext_id
+      items.push(...arr.map(x => ({ ...x, __unit: r.unit })))
     }
   } else {
     const sp = new URLSearchParams({ datum_von, datum_bis, unit })
     const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
     const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
     const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
-    items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
+    items = (Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])).map(x => ({ ...x, __unit: unit }))
   }
   return items
 }
@@ -528,6 +529,69 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
       doc.image(img, { fit: [doc.page.width - 72, doc.page.height - 120] })
     }
   } catch (_) { /* chart optional */ }
+  // Per-employee workload by project (stacked bars per unit)
+  try {
+    if (type === 'zeiten' && dataRows.length > 0) {
+      const units = Array.from(new Set(dataRows.map(r => r.__unit || unit || 'ALL')))
+      for (const u of units) {
+        const rowsU = dataRows.filter(r => (r.__unit || unit || 'ALL') === u)
+        if (rowsU.length === 0) continue
+        // Build map: employee -> project -> sum(__val)
+        const empMap = new Map()
+        for (const r of rowsU) {
+          const emp = (r?.MITARBEITER ?? r?.mitarbeiter ?? '—').toString()
+          const proj = (r?.PROJEKT ?? r?.projekt ?? r?.projektcode ?? '—').toString()
+          const val = toNumber(r.__val)
+          if (!empMap.has(emp)) empMap.set(emp, new Map())
+          const pm = empMap.get(emp)
+          pm.set(proj, (pm.get(proj) || 0) + val)
+        }
+        // Rank employees by total, keep top 15
+        const empTotals = Array.from(empMap.entries()).map(([e, pm]) => [e, Array.from(pm.values()).reduce((a,b)=>a+b,0)])
+        empTotals.sort((a,b)=>b[1]-a[1])
+        const labels = empTotals.slice(0,15).map(e=>e[0])
+        if (labels.length === 0) continue
+        // Determine top projects (across kept employees), keep top 5
+        const projTotals = new Map()
+        for (const e of labels) {
+          const pm = empMap.get(e) || new Map()
+          for (const [p,v] of pm) projTotals.set(p, (projTotals.get(p)||0)+v)
+        }
+        const topProjects = Array.from(projTotals.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5).map(x=>x[0])
+        // Build stacked datasets
+        const datasets = []
+        for (const p of topProjects) {
+          const data = labels.map(e => (empMap.get(e)?.get(p)) ? Number(empMap.get(e).get(p)) : 0)
+          datasets.push({ label: p, data })
+        }
+        // Aggregate other projects into 'Andere'
+        const other = labels.map(e => {
+          const pm = empMap.get(e) || new Map()
+          let sum = 0
+          for (const [p,v] of pm) { if (!topProjects.includes(p)) sum += Number(v||0) }
+          return sum
+        })
+        if (other.some(v=>v>0)) datasets.push({ label: 'Andere', data: other })
+
+        const cfg = {
+          type: 'bar',
+          data: { labels, datasets },
+          options: {
+            indexAxis: 'y',
+            plugins: { legend: { position: 'bottom' }, title: { display: true, text: `Auslastung je Mitarbeiter (Unit ${u})` } },
+            scales: { x: { stacked: true }, y: { stacked: true } }
+          }
+        }
+        const url = 'https://quickchart.io/chart?c=' + encodeURIComponent(JSON.stringify(cfg))
+        const qr = await axios.get(url, { responseType: 'arraybuffer' })
+        const img = Buffer.from(qr.data)
+        doc.addPage()
+        doc.fontSize(16).fillColor('#111').text(`Auslastung je Mitarbeiter – Unit ${u}`, { align: 'left' })
+        doc.moveDown(0.2)
+        doc.image(img, { fit: [doc.page.width - 72, doc.page.height - 120] })
+      }
+    }
+  } catch (_) { /* optional */ }
 
   doc.end()
   await new Promise(res => doc.on('end', res))
