@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { UNITS } from '../lib/constants'
+import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -41,6 +42,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const [dimension, setDimension] = useState('customer') // 'customer' | 'project' | 'employee'
   const [stacked, setStacked] = useState(false)
   const [unitSel, setUnitSel] = useState('ALL') // for per-employee stacked view
+  const [query, setQuery] = useState('') // filter employees/projects
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -235,6 +237,26 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     return rows
   }, [itemsForUnit, metric])
 
+  // Filter by query (matches employee or any segment name)
+  const filteredEmpSegments = useMemo(() => {
+    const q = (query||'').trim().toLowerCase()
+    if (!q) return empSegments
+    return empSegments.filter(r => r.employee.toLowerCase().includes(q) || r.segments.some(s => (s.name||'').toLowerCase().includes(q)))
+  }, [empSegments, query])
+
+  const filteredAggEmpProj = useMemo(() => {
+    const q = (query||'').trim().toLowerCase()
+    if (!q) return aggEmpProj
+    return aggEmpProj.filter(r => r.mitarbeiter.toLowerCase().includes(q) || r.projekt.toLowerCase().includes(q))
+  }, [aggEmpProj, query])
+
+  // Stable color per project name
+  function colorForProject(name){
+    const palette = ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#4ade80','#f87171','#22d3ee','#22c55e','#eab308','#ef4444','#06b6d4','#10b981','#6366f1','#9ca3af']
+    let h=0; for (let i=0;i<name.length;i++){ h = (h*31 + name.charCodeAt(i)) & 0xffffffff }
+    return palette[Math.abs(h)%palette.length]
+  }
+
   return (
     <div className="grid">
       <div className="panel" style={{ padding: 12, height: 520 }}>
@@ -294,7 +316,19 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
       <div className="panel" style={{ padding: 12 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
           <strong>Summen je Mitarbeiter · Projekt</strong>
-          <span style={{ color:'var(--muted)' }}>Einträge: {aggEmpProj.length}</span>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <input className="input" placeholder="Suchen (Mitarbeiter/Projekt)" value={query} onChange={(e)=>setQuery(e.target.value)} style={{ width: 260 }} />
+            <button className="btn" onClick={()=>{
+              exportGenericCsv([
+                { key:'mitarbeiter', label:'Mitarbeiter' },
+                { key:'projekt', label:'Projekt' },
+                { key:'stunden_gel', label:'Std_geleistet' },
+                { key:'stunden_fakt', label:'Std_fakturiert' },
+                { key:'summe', label:'Summe' },
+              ], filteredAggEmpProj.map(r=>({ ...r, summe: (r.stunden_gel||0)+(r.stunden_fakt||0) })), 'emp_projekt')
+            }}>CSV Export</button>
+            <span style={{ color:'var(--muted)' }}>Einträge: {filteredAggEmpProj.length}</span>
+          </div>
         </div>
         <div style={{ overflowX:'auto' }}>
           <table className="table" style={{ minWidth: 720 }}>
@@ -308,7 +342,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
               </tr>
             </thead>
             <tbody>
-              {aggEmpProj.slice(0, 100).map((r, idx) => (
+              {filteredAggEmpProj.slice(0, 1000).map((r, idx) => (
                 <tr key={idx}>
                   <td>{r.mitarbeiter}</td>
                   <td>{r.projekt}</td>
@@ -320,7 +354,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
             </tbody>
           </table>
         </div>
-        {aggEmpProj.length > 100 && <div style={{ color:'var(--muted)', marginTop:6 }}>Nur Top 100 angezeigt. Filtere nach Unit/Projekt, um zu verfeinern.</div>}
+        {filteredAggEmpProj.length > 1000 && <div style={{ color:'var(--muted)', marginTop:6 }}>Nur Top 1000 angezeigt. Filtere/Suche zum Eingrenzen.</div>}
       </div>
       <div className="panel" style={{ padding: 12 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
@@ -341,7 +375,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           </div>
         </div>
         <div style={{ display:'grid', gap:14 }}>
-          {empSegments.map((row, idx) => (
+          {filteredEmpSegments.map((row, idx) => (
             <div key={idx} style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:10, alignItems:'center' }}>
               <div style={{ color:'var(--fg)' }}>{row.employee}</div>
               <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:8, overflow:'hidden', background:'var(--bg)' }}>
@@ -349,9 +383,8 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
                   const pct = Math.round(seg.pct * 100)
                   const hours = seg.val.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                   const showText = pct >= 6
-                  const colors = ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#4ade80','#f87171','#22d3ee','#22c55e','#eab308','#ef4444','#06b6d4','#10b981','#6366f1','#9ca3af']
                   return (
-                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colors[sidx % colors.length], color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:4, padding:'6px 4px' }}>
+                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colorForProject(seg.name), color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:4, padding:'6px 4px' }}>
                       {showText && (
                         <span style={{ fontSize:12, fontWeight:600, textShadow:'0 1px 2px rgba(0,0,0,0.35)', textAlign:'center' }}>{`${pct}% ${seg.name} · ${hours} h`}</span>
                       )}
