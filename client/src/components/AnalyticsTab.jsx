@@ -43,6 +43,8 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const [stacked, setStacked] = useState(false)
   const [unitSel, setUnitSel] = useState('ALL') // for per-employee stacked view
   const [query, setQuery] = useState('') // filter employees/projects
+  const [displayMode, setDisplayMode] = useState('both') // 'percent' | 'hours' | 'both'
+  const [labelThreshold, setLabelThreshold] = useState(6) // min % for inline labels
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -80,13 +82,13 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const barOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top' }, title: { display: true, text: 'Top 15 Projekte' } },
+    plugins: { legend: { position: 'top', labels: { color: 'var(--fg)' } }, title: { display: true, text: 'Top 15 Projekte', color: 'var(--fg)', font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
-    scales: { x: { stacked: false }, y: { beginAtZero: true } },
+    scales: { x: { stacked: false, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } }, y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } } },
   }
 
   const doughnutOptions = {
-    plugins: { legend: { position: 'right' }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)' } },
+    plugins: { legend: { position: 'right', labels: { color: 'var(--fg)' } }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', color: 'var(--fg)', font: { weight: '600' } } },
     maintainAspectRatio: false,
   }
 
@@ -121,9 +123,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const lineOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top' }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}` } },
+    plugins: { legend: { position: 'top', labels: { color: 'var(--fg)' } }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, color: 'var(--fg)', font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
-    scales: { x: { stacked }, y: { beginAtZero: true, stacked } },
+    scales: { x: { stacked, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } }, y: { beginAtZero: true, stacked, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } } },
   }
 
   // Employees bar and Customer distribution donut
@@ -259,6 +261,67 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
 
   return (
     <div className="grid">
+      {/* First: Full-width segmented visualization with filter */}
+      <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <strong>Auslastung (pro Mitarbeiter · pro Projekt) – Prozentuale Verteilung</strong>
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Unit</label>
+            <select className="input" value={unitSel} onChange={(e)=>setUnitSel(e.target.value)}>
+              <option value="ALL">Alle</option>
+              {UNITS.map(u => (
+                <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
+              ))}
+            </select>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Metrik</label>
+            <select className="input" value={metric} onChange={(e)=>setMetric(e.target.value)}>
+              <option value="stunden_fakt">Stunden fakturiert</option>
+              <option value="stunden_gel">Stunden geleistet</option>
+            </select>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Label</label>
+            <select className="input" value={displayMode} onChange={(e)=>setDisplayMode(e.target.value)}>
+              <option value="both">% + Stunden</option>
+              <option value="percent">nur %</option>
+              <option value="hours">nur Stunden</option>
+            </select>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>min. %</label>
+            <input className="input" type="number" min="0" max="20" value={labelThreshold} onChange={(e)=>setLabelThreshold(Math.max(0, Math.min(20, Number(e.target.value)||0)))} style={{ width:72 }} />
+            <input className="input" placeholder="Suchen (Mitarbeiter/Projekt)" value={query} onChange={(e)=>setQuery(e.target.value)} style={{ width: 260 }} />
+          </div>
+        </div>
+        {/* Legend */}
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', margin:'6px 0 10px' }}>
+          {Array.from(new Map(filteredEmpSegments.flatMap(r => r.segments.map(s => [s.name, colorForProject(s.name)]) )).entries()).slice(0, 24).map(([name, color]) => (
+            <div key={name} style={{ display:'flex', alignItems:'center', gap:6, padding:'2px 8px', borderRadius:999, background:'rgba(148,163,184,0.12)', color:'var(--muted)' }}>
+              <span style={{ width:12, height:12, borderRadius:3, background:color, display:'inline-block' }} />
+              <span style={{ fontSize:12 }}>{name}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:'grid', gap:14 }}>
+          {filteredEmpSegments.map((row, idx) => (
+            <div key={idx} style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:10, alignItems:'center' }}>
+              <div style={{ color:'var(--fg)' }}>{row.employee}</div>
+              <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:8, overflow:'hidden', background:'var(--bg)' }}>
+                {row.segments.map((seg, sidx) => {
+                  const pct = Math.round(seg.pct * 100)
+                  const hours = seg.val.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  const showText = pct >= Number(labelThreshold)
+                  return (
+                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colorForProject(seg.name), color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:4, padding:'6px 4px' }}>
+                      {showText && (
+                        <span style={{ fontSize:12, fontWeight:600, textShadow:'0 1px 2px rgba(0,0,0,0.35)', textAlign:'center' }}>
+                          {displayMode==='percent' ? `${pct}% ${seg.name}` : displayMode==='hours' ? `${hours} h ${seg.name}` : `${pct}% ${seg.name} · ${hours} h`}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="panel" style={{ padding: 12, height: 520 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
           <label style={{ color: 'var(--muted)', fontSize: 12 }}>Metrik</label>
@@ -355,46 +418,6 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           </table>
         </div>
         {filteredAggEmpProj.length > 1000 && <div style={{ color:'var(--muted)', marginTop:6 }}>Nur Top 1000 angezeigt. Filtere/Suche zum Eingrenzen.</div>}
-      </div>
-      <div className="panel" style={{ padding: 12 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-          <strong>Auslastung (pro Mitarbeiter · pro Projekt) – Prozentuale Verteilung</strong>
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <label style={{ color:'var(--muted)', fontSize:12 }}>Unit</label>
-            <select className="input" value={unitSel} onChange={(e)=>setUnitSel(e.target.value)}>
-              <option value="ALL">Alle</option>
-              {UNITS.map(u => (
-                <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
-              ))}
-            </select>
-            <label style={{ color:'var(--muted)', fontSize:12 }}>Metrik</label>
-            <select className="input" value={metric} onChange={(e)=>setMetric(e.target.value)}>
-              <option value="stunden_fakt">Stunden fakturiert</option>
-              <option value="stunden_gel">Stunden geleistet</option>
-            </select>
-          </div>
-        </div>
-        <div style={{ display:'grid', gap:14 }}>
-          {filteredEmpSegments.map((row, idx) => (
-            <div key={idx} style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:10, alignItems:'center' }}>
-              <div style={{ color:'var(--fg)' }}>{row.employee}</div>
-              <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:8, overflow:'hidden', background:'var(--bg)' }}>
-                {row.segments.map((seg, sidx) => {
-                  const pct = Math.round(seg.pct * 100)
-                  const hours = seg.val.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                  const showText = pct >= 6
-                  return (
-                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colorForProject(seg.name), color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:4, padding:'6px 4px' }}>
-                      {showText && (
-                        <span style={{ fontSize:12, fontWeight:600, textShadow:'0 1px 2px rgba(0,0,0,0.35)', textAlign:'center' }}>{`${pct}% ${seg.name} · ${hours} h`}</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   )
