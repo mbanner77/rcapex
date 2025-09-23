@@ -181,6 +181,60 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     return { labels, datasets }
   }, [itemsForUnit, metric])
 
+  // Aggregation per Mitarbeiter+Projekt (no per-day rows)
+  const aggEmpProj = useMemo(() => {
+    const map = new Map()
+    for (const r of itemsForUnit) {
+      const emp = (r?.MITARBEITER ?? r?.mitarbeiter ?? '—').toString()
+      const proj = (r?.PROJEKT ?? r?.projekt ?? r?.projektcode ?? '—').toString()
+      const key = emp + '||' + proj
+      const gel = Number(r?.stunden_gel || 0)
+      const fakt = Number(r?.stunden_fakt || 0)
+      if (!map.has(key)) map.set(key, { mitarbeiter: emp, projekt: proj, stunden_gel: 0, stunden_fakt: 0 })
+      const obj = map.get(key)
+      obj.stunden_gel += gel || 0
+      obj.stunden_fakt += fakt || 0
+    }
+    const arr = Array.from(map.values())
+    arr.sort((a,b)=> (b.stunden_fakt + b.stunden_gel) - (a.stunden_fakt + a.stunden_gel))
+    return arr
+  }, [itemsForUnit])
+
+  // --- New: Employee segmented bars (percent share per project) ---
+  const empSegments = useMemo(() => {
+    const getVal = (r) => Number(r?.[metric] ?? 0)
+    // Build emp -> project -> sum(metric)
+    const empMap = new Map()
+    for (const r of itemsForUnit) {
+      const emp = (r?.MITARBEITER ?? r?.mitarbeiter ?? '—').toString()
+      const proj = (r?.PROJEKT ?? r?.projekt ?? r?.projektcode ?? '—').toString()
+      const v = getVal(r)
+      if (!v) continue
+      if (!empMap.has(emp)) empMap.set(emp, new Map())
+      const pm = empMap.get(emp)
+      pm.set(proj, (pm.get(proj) || 0) + v)
+    }
+    const rows = []
+    // Rank employees by total, include all (descending)
+    const order = Array.from(empMap.entries()).map(([e, pm]) => [e, Array.from(pm.values()).reduce((a,b)=>a+b,0)])
+    order.sort((a,b)=>b[1]-a[1])
+    const allEmps = order.map(x=>x[0])
+    for (const emp of allEmps) {
+      const pm = empMap.get(emp) || new Map()
+      const total = Array.from(pm.values()).reduce((a,b)=>a+b,0)
+      if (!total) continue
+      // Top 5 projects per employee; rest -> Andere
+      const plist = Array.from(pm.entries()).sort((a,b)=>b[1]-a[1])
+      const top = plist.slice(0,5)
+      const rest = plist.slice(5)
+      let segments = top.map(([name, val]) => ({ name, val, pct: val / total }))
+      const restSum = rest.reduce((a,[,v])=>a+v,0)
+      if (restSum > 0) segments.push({ name: 'Andere', val: restSum, pct: restSum/total })
+      rows.push({ employee: emp, total, segments })
+    }
+    return rows
+  }, [itemsForUnit, metric])
+
   return (
     <div className="grid">
       <div className="panel" style={{ padding: 12, height: 520 }}>
@@ -236,6 +290,78 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           </select>
         </div>
         <Bar data={empStacked} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter – ${unitSel==='ALL'?'Alle Units':unitName(unitSel)}` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }} />
+      </div>
+      <div className="panel" style={{ padding: 12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <strong>Summen je Mitarbeiter · Projekt</strong>
+          <span style={{ color:'var(--muted)' }}>Einträge: {aggEmpProj.length}</span>
+        </div>
+        <div style={{ overflowX:'auto' }}>
+          <table className="table" style={{ minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th>Mitarbeiter</th>
+                <th>Projekt</th>
+                <th style={{ textAlign:'right' }}>Std. geleistet</th>
+                <th style={{ textAlign:'right' }}>Std. fakturiert</th>
+                <th style={{ textAlign:'right' }}>Summe</th>
+              </tr>
+            </thead>
+            <tbody>
+              {aggEmpProj.slice(0, 100).map((r, idx) => (
+                <tr key={idx}>
+                  <td>{r.mitarbeiter}</td>
+                  <td>{r.projekt}</td>
+                  <td style={{ textAlign:'right' }}>{(r.stunden_gel || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td style={{ textAlign:'right' }}>{(r.stunden_fakt || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td style={{ textAlign:'right' }}>{((r.stunden_fakt || 0) + (r.stunden_gel || 0)).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {aggEmpProj.length > 100 && <div style={{ color:'var(--muted)', marginTop:6 }}>Nur Top 100 angezeigt. Filtere nach Unit/Projekt, um zu verfeinern.</div>}
+      </div>
+      <div className="panel" style={{ padding: 12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <strong>Auslastung (pro Mitarbeiter · pro Projekt) – Prozentuale Verteilung</strong>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Unit</label>
+            <select className="input" value={unitSel} onChange={(e)=>setUnitSel(e.target.value)}>
+              <option value="ALL">Alle</option>
+              {UNITS.map(u => (
+                <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
+              ))}
+            </select>
+            <label style={{ color:'var(--muted)', fontSize:12 }}>Metrik</label>
+            <select className="input" value={metric} onChange={(e)=>setMetric(e.target.value)}>
+              <option value="stunden_fakt">Stunden fakturiert</option>
+              <option value="stunden_gel">Stunden geleistet</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display:'grid', gap:14 }}>
+          {empSegments.map((row, idx) => (
+            <div key={idx} style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:10, alignItems:'center' }}>
+              <div style={{ color:'var(--fg)' }}>{row.employee}</div>
+              <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:8, overflow:'hidden', background:'var(--bg)' }}>
+                {row.segments.map((seg, sidx) => {
+                  const pct = Math.round(seg.pct * 100)
+                  const hours = seg.val.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  const showText = pct >= 6
+                  const colors = ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#4ade80','#f87171','#22d3ee','#22c55e','#eab308','#ef4444','#06b6d4','#10b981','#6366f1','#9ca3af']
+                  return (
+                    <div key={sidx} title={`${pct}% ${seg.name} · ${hours} h`} style={{ width:(seg.pct*100)+'%', minWidth: seg.pct>0? '3%':'0', background: colors[sidx % colors.length], color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:4, padding:'6px 4px' }}>
+                      {showText && (
+                        <span style={{ fontSize:12, fontWeight:600, textShadow:'0 1px 2px rgba(0,0,0,0.35)', textAlign:'center' }}>{`${pct}% ${seg.name} · ${hours} h`}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
