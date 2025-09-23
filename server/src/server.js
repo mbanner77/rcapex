@@ -586,7 +586,7 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
         const qr = await axios.get(url, { responseType: 'arraybuffer' })
         const img = Buffer.from(qr.data)
         doc.addPage()
-        doc.fontSize(16).fillColor('#111').text(`Auslastung je Mitarbeiter – Unit ${u}`, { align: 'left' })
+        doc.fontSize(16).fillColor('#111').text(`Auslastung je Mitarbeiter – Unit ${unitName(u)}`, { align: 'left' })
         doc.moveDown(0.2)
         doc.image(img, { fit: [doc.page.width - 72, doc.page.height - 120] })
       }
@@ -788,6 +788,19 @@ function resolveUnitExtIds() {
     'YtK84kUP26b7bMw', // RCC Transformation
     'eQnsTZhPu8GPFUm', // RCC Architecture
   ];
+}
+
+// Map Unit ext_id -> Display name (sync with client/src/lib/constants.js)
+function unitName(id) {
+  const map = {
+    'zaE22GlNK6AZfBc': 'SAP CWS',
+    'YytRDIbdYtOVax8': 'SAP ABAP',
+    'VUmfO9SS3wXt2iB': 'SAP PI/PO',
+    'h0zDeGnQIgfY3px': 'SAP Basis',
+    'YtK84kUP26b7bMw': 'RCC Transformation',
+    'eQnsTZhPu8GPFUm': 'RCC Architecture',
+  }
+  return map[id] || id || 'ALL'
 }
 
 if (!APEX_USERNAME || !APEX_PASSWORD) {
