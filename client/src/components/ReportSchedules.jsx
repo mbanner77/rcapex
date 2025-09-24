@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf } from '../lib/api'
+import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf, runInternalWatchdog } from '../lib/api'
 import { getUnits } from '../lib/constants'
 
 const DEFAULT = {
   id: '',
   name: '',
   active: true,
-  report: 'stunden', // 'stunden' | 'umsatzliste'
+  kind: 'report', // 'report' | 'watchdog_internal'
+  report: 'stunden', // used when kind==='report' -> 'stunden' | 'umsatzliste'
   unit: 'ALL',
   rangePreset: 'last_month', // 'last_month' | 'last_week'
   frequency: 'monthly', // 'daily' | 'weekly' | 'monthly'
@@ -14,6 +15,9 @@ const DEFAULT = {
   weekdays: [1], // 1..7 (Mon..Sun)
   dayOfMonth: 1,
   recipients: [],
+  // Watchdog params
+  threshold: 0.2, // 20%
+  weeksBack: 1,
 }
 
 export default function ReportSchedules({ onClose }){
@@ -57,6 +61,7 @@ export default function ReportSchedules({ onClose }){
       id: item?.id || '',
       name: item?.name || '',
       active: !!item?.active,
+      kind: item?.kind || 'report',
       report: item?.report || 'stunden',
       unit: item?.unit || 'ALL',
       rangePreset: item?.rangePreset || 'last_month',
@@ -65,6 +70,8 @@ export default function ReportSchedules({ onClose }){
       weekdays: Array.isArray(item?.weekdays) ? item.weekdays : [1],
       dayOfMonth: Number(item?.dayOfMonth || 1),
       recipients: Array.isArray(item?.recipients) ? item.recipients : [],
+      threshold: typeof item?.threshold === 'number' ? item.threshold : 0.2,
+      weeksBack: Number(item?.weeksBack || 1),
     })
   }
 
@@ -101,10 +108,16 @@ export default function ReportSchedules({ onClose }){
 
   function validate(){
     if (!form.name.trim()) return 'Name fehlt'
-    if (!form.report) return 'Report-Typ fehlt'
+    if (form.kind === 'report' && !form.report) return 'Report-Typ fehlt'
     if (!form.at || !/^\d{2}:\d{2}$/.test(form.at)) return 'Uhrzeit im Format HH:MM'
     const rec = (form.recipients||[]).filter(Boolean)
     if (rec.length===0 && !mailDefaults.defaultRecipient) return 'Empfänger erforderlich (oder Standard-Empfänger im Mail-Setup setzen)'
+    if (form.kind === 'watchdog_internal') {
+      const th = Number(form.threshold)
+      if (!(th >= 0 && th <= 1)) return 'Schwellwert (threshold) muss zwischen 0 und 1 liegen (z.B. 0.2)'
+      const wb = Number(form.weeksBack)
+      if (!(wb >= 1 && wb <= 12)) return 'Wochen zurück (1-12)'
+    }
     return ''
   }
 
@@ -133,8 +146,14 @@ export default function ReportSchedules({ onClose }){
 
   async function runNow(item){
     try{
-      await runReportNow({ scheduleId: item?.id })
-      alert('Report wurde angestoßen.')
+      if (item?.kind === 'watchdog_internal') {
+        const to = (Array.isArray(item?.recipients) ? item.recipients : []).join(',')
+        await runInternalWatchdog({ unit: item?.unit || 'ALL', to, threshold: item?.threshold ?? 0.2, weeksBack: item?.weeksBack || 1 })
+        alert('Watchdog wurde angestoßen.')
+      } else {
+        await runReportNow({ scheduleId: item?.id })
+        alert('Report wurde angestoßen.')
+      }
     }catch(e){ alert('Fehler: ' + (e?.response?.data?.message || e.message)) }
   }
 
@@ -238,12 +257,20 @@ export default function ReportSchedules({ onClose }){
                     <option value="false">Nein</option>
                   </select>
                 </Labeled>
-                <Labeled label="Report-Typ">
-                  <select className="input" value={form.report} onChange={(e)=>update('report', e.target.value)}>
-                    <option value="stunden">Stunden</option>
-                    <option value="umsatzliste">Umsatzliste</option>
+                <Labeled label="Aufgabe">
+                  <select className="input" value={form.kind} onChange={(e)=>update('kind', e.target.value)}>
+                    <option value="report">Report</option>
+                    <option value="watchdog_internal">Watchdog: interner Anteil</option>
                   </select>
                 </Labeled>
+                {form.kind === 'report' && (
+                  <Labeled label="Report-Typ">
+                    <select className="input" value={form.report} onChange={(e)=>update('report', e.target.value)}>
+                      <option value="stunden">Stunden</option>
+                      <option value="umsatzliste">Umsatzliste</option>
+                    </select>
+                  </Labeled>
+                )}
                 <Labeled label="Unit">
                   <select className="input" value={form.unit} onChange={(e)=>update('unit', e.target.value)}>
                     <option value="ALL">ALL</option>
@@ -252,12 +279,24 @@ export default function ReportSchedules({ onClose }){
                     ))}
                   </select>
                 </Labeled>
-                <Labeled label="Zeitraum">
-                  <select className="input" value={form.rangePreset} onChange={(e)=>update('rangePreset', e.target.value)}>
-                    <option value="last_month">Letzter Monat</option>
-                    <option value="last_week">Letzte Woche</option>
-                  </select>
-                </Labeled>
+                {form.kind === 'report' && (
+                  <Labeled label="Zeitraum">
+                    <select className="input" value={form.rangePreset} onChange={(e)=>update('rangePreset', e.target.value)}>
+                      <option value="last_month">Letzter Monat</option>
+                      <option value="last_week">Letzte Woche</option>
+                    </select>
+                  </Labeled>
+                )}
+                {form.kind === 'watchdog_internal' && (
+                  <>
+                    <Labeled label="Schwellwert intern (0-1)">
+                      <input className="input" type="number" step="0.05" min={0} max={1} value={form.threshold} onChange={(e)=>update('threshold', Math.max(0, Math.min(1, Number(e.target.value))))} />
+                    </Labeled>
+                    <Labeled label="Wochen zurück (1-12)">
+                      <input className="input" type="number" min={1} max={12} value={form.weeksBack} onChange={(e)=>update('weeksBack', Math.max(1, Math.min(12, Number(e.target.value))))} />
+                    </Labeled>
+                  </>
+                )}
                 <Labeled label="Häufigkeit">
                   <select className="input" value={form.frequency} onChange={(e)=>update('frequency', e.target.value)}>
                     <option value="daily">Täglich</option>
@@ -299,8 +338,8 @@ export default function ReportSchedules({ onClose }){
               </div>
               <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
                 <button className="btn" onClick={save} disabled={saving}>{saving? 'Speichere…' : 'Speichern'}</button>
-                <button className="btn" onClick={runAdhoc}>Ad-hoc senden…</button>
-                <button className="btn" onClick={previewPdf}>PDF ansehen</button>
+                {form.kind === 'report' && <button className="btn" onClick={runAdhoc}>Ad-hoc senden…</button>}
+                {form.kind === 'report' && <button className="btn" onClick={previewPdf}>PDF ansehen</button>}
               </div>
               {previewUrl && (
                 <div className="panel" style={{ marginTop:12, padding:0, border:'1px solid var(--border)' }}>

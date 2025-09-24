@@ -66,6 +66,141 @@ async function loadPersistedApex() {
   } catch (_) { /* ignore */ }
 }
 
+// ---------------- Utilities: time and project helpers ----------------
+function startOfIsoWeek(d) {
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  const day = dt.getUTCDay() || 7 // 1..7 Mon..Sun
+  dt.setUTCDate(dt.getUTCDate() - (day - 1)) // back to Monday
+  dt.setUTCHours(0,0,0,0)
+  return dt
+}
+function endOfIsoWeek(d) {
+  const s = startOfIsoWeek(d)
+  const e = new Date(s)
+  e.setUTCDate(e.getUTCDate() + 6)
+  e.setUTCHours(23,59,59,999)
+  return e
+}
+function toIsoStringUTC(d){
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds())).toISOString().slice(0,19)+'Z'
+}
+function isoWeekId(d){
+  const s = startOfIsoWeek(d)
+  const year = s.getUTCFullYear()
+  // week number: count weeks since first Thursday
+  const jan4 = new Date(Date.UTC(year, 0, 4))
+  const weekStart = startOfIsoWeek(jan4)
+  const diffDays = Math.floor((s - weekStart) / 86400000)
+  const week = Math.floor(diffDays / 7) + 1
+  const w = String(week).padStart(2, '0')
+  return `${year}-W${w}`
+}
+function isInternalProject(row){
+  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase()
+  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase()
+  return code.startsWith('INT') || name.startsWith('INT')
+}
+
+// Compute weekly internal share per employee for a given date range (inclusive)
+async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis }){
+  const type = 'zeiten'
+  const items = await getAggregatedItems({ type, unit, datum_von, datum_bis })
+  // Map: weekId -> emp -> { total, internal }
+  const weekEmp = new Map()
+  const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }
+  for (const r of items) {
+    // find a date for this entry – prefer DATUM fields
+    const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
+    let d = undefined
+    try { if (dstr) d = new Date(dstr) } catch {}
+    if (!d || isNaN(d.getTime())) continue
+    const wid = isoWeekId(d)
+    const emp = (r?.MITARBEITER ?? r?.mitarbeiter ?? '—').toString()
+    const val = toNumber(r?.stunden_gel ?? r?.STD_GELEISTET ?? r?.STUNDEN ?? r?.stunden ?? r?.ZEIT ?? r?.zeit ?? 0)
+    if (!val) continue
+    if (!weekEmp.has(wid)) weekEmp.set(wid, new Map())
+    const em = weekEmp.get(wid)
+    if (!em.has(emp)) em.set(emp, { total: 0, internal: 0 })
+    const obj = em.get(emp)
+    obj.total += val
+    if (isInternalProject(r)) obj.internal += val
+  }
+  // Flatten rows
+  const rows = []
+  for (const [wid, em] of weekEmp) {
+    for (const [emp, { total, internal }] of em) {
+      const pct = total > 0 ? (internal / total) : 0
+      rows.push({ week: wid, mitarbeiter: emp, total, internal, pct })
+    }
+  }
+  // sort by week then pct desc
+  rows.sort((a,b)=> a.week===b.week ? (b.pct - a.pct) : (a.week < b.week ? 1 : -1))
+  return rows
+}
+
+// ---------------- Internal time watchdog ----------------
+async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1 }){
+  // build range for last calendar week; allow weeksBack>1 by expanding range
+  const now = new Date()
+  // end at last week's Sunday 23:59:59
+  const day = now.getUTCDay() || 7
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day, 23, 59, 59))
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6)) // go back weeksBack weeks to Monday
+  const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
+  const rows = await computeWeeklyInternalShares({ unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+  const offenders = rows.filter(r => r.pct > Number(threshold || 0.2))
+  // Prepare email
+  const pctFmt = (p)=> `${(p*100).toFixed(1)}%`
+  const hoursFmt = (n)=> new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
+  let html = `<p>Watchdog: Interner Anteil > ${pctFmt(threshold||0.2)} in den letzten ${weeksBack} Woche(n), Unit ${unit||'ALL'}.</p>`
+  if (offenders.length === 0) {
+    html += '<p><strong>Keine Verstöße gefunden.</strong></p>'
+  } else {
+    html += `<p><strong>${offenders.length}</strong> Einträge:</p>`
+    html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Woche</th><th>Mitarbeiter</th><th>Intern (h)</th><th>Gesamt (h)</th><th>Quote intern</th></tr></thead><tbody>'
+    for (const r of offenders) {
+      html += `<tr><td>${r.week}</td><td>${r.mitarbeiter}</td><td style="text-align:right">${hoursFmt(r.internal)}</td><td style="text-align:right">${hoursFmt(r.total)}</td><td style="text-align:right">${pctFmt(r.pct)}</td></tr>`
+    }
+    html += '</tbody></table>'
+  }
+  const csvLines = ['week;mitarbeiter;internal;total;pct'].concat(offenders.map(r => [r.week, r.mitarbeiter.replaceAll(';',','), r.internal, r.total, (r.pct*100).toFixed(1)].join(';')))
+  const attachments = [{ filename: 'watchdog_internal.csv', content: Buffer.from(csvLines.join('\n'), 'utf8') }]
+  const subject = `Watchdog Intern > ${(Number(threshold||0.2)*100).toFixed(0)}% · ${unit||'ALL'} · ${range.datum_von.slice(0,10)}–${range.datum_bis.slice(0,10)}`
+  if ((Array.isArray(recipients) ? recipients : [recipients]).filter(Boolean).length > 0) {
+    await sendSmtpMail({ to: recipients, subject, html, text: html.replace(/<[^>]+>/g,' '), attachments })
+  }
+  return { range, rows, offenders }
+}
+
+// GET: watchdog internal report JSON
+app.get('/api/watchdogs/internal/report', async (req, res) => {
+  try {
+    const unit = req.query.unit || 'ALL'
+    const threshold = Number(req.query.threshold || 0.2)
+    const weeksBack = Math.max(1, Math.min(12, Number(req.query.weeksBack || 1)))
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack })
+    res.json({ ok: true, ...result })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
+// POST: run watchdog and send email
+app.post('/api/watchdogs/internal/run', async (req, res) => {
+  try {
+    const { unit = 'ALL', to, threshold = 0.2, weeksBack = 1 } = req.body || {}
+    const recipients = Array.isArray(to) ? to : (to ? [to] : [])
+    if (recipients.length === 0) return res.status(400).json({ error: true, message: 'to required' })
+    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack })
+    res.json({ ok: true, ...result })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
 // GET preview (easier for window.open)
 app.get('/api/reports/preview', async (req, res) => {
   try {
@@ -600,10 +735,13 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
 
 // Run a schedule once
 async function runSchedule(s) {
+  if (s?.kind === 'watchdog_internal') {
+    await runInternalWatchdog(s)
+    return
+  }
   const { rangePreset = 'last_month', unit = 'ALL', report = 'stunden', recipients = [] } = s || {}
   const range = computeRange(rangePreset)
   const rtype = report === 'umsatzliste' ? 'umsatzliste' : 'zeiten'
-  // Fetch raw items once for CSV (reuse generateReportPdf aggregation logic via small helper)
   const pdf = await generateReportPdf({ type: rtype, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
   const csv = await generateCsv({ type: rtype, unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
   const subject = `Report ${report} · ${unit || 'ALL'} · ${range.datum_von.slice(0,10)} – ${range.datum_bis.slice(0,10)}`

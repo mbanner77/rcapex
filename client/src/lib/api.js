@@ -117,3 +117,14 @@ export async function previewReportPdf(payload) {
   const res = await axios.post('/api/reports/preview', payload, { responseType: 'blob' })
   return res
 }
+
+// --- Watchdogs ---
+export async function fetchInternalWatchdogReport(params) {
+  const res = await axios.get('/api/watchdogs/internal/report', { params })
+  return res.data
+}
+
+export async function runInternalWatchdog(payload) {
+  const res = await axios.post('/api/watchdogs/internal/run', payload)
+  return res.data
+}
