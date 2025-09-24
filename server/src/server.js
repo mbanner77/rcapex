@@ -289,9 +289,19 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
     const rows = Array.isArray(result?.offenders) ? result.offenders : []
     const reasonsTxt = (r)=> (Array.isArray(r?.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share (${(x.weeks||[]).join(',')})` : x.type).join(', ') : '')
     const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Watchdog Preview</title>
-      <style>body{font-family: -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:10px;}table{border-collapse:collapse; width:100%;}th,td{border:1px solid #ddd; padding:6px 8px; font-size:14px}th{background:#f5f5f5; text-align:left}.right{text-align:right}.muted{color:#666}</style></head><body>
+      <style>
+        :root{ color-scheme: light; }
+        body{ background:#ffffff; color:#111; font-family: -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:10px; }
+        table{ border-collapse:collapse; width:100%; }
+        th,td{ border:1px solid #ddd; padding:6px 8px; font-size:14px }
+        th{ background:#f5f5f5; text-align:left }
+        .right{text-align:right}
+        .muted{color:#666}
+        .note{ margin:10px 0; padding:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px }
+      </style></head><body>
       <div class="muted">Zeitraum: ${esc((result.range?.datum_von||'').slice(0,10))} – ${esc((result.range?.datum_bis||'').slice(0,10))} · Unit: ${esc(unit)}</div>
       <h3>Watchdog Ergebnisse (${rows.length})</h3>
+      ${rows.length===0 ? `<div class="note">Keine Einträge für die gewählten Parameter. Bitte Schwellen/Zeitraum prüfen.</div>` : ''}
       <table><thead><tr><th>Woche</th><th>Mitarbeiter</th><th class="right">Intern (h)</th><th class="right">Gesamt (h)</th><th class="right">Anteil Intern</th><th>Gründe</th></tr></thead>
       <tbody>
       ${rows.map(r => `<tr><td>${esc(r.week)}</td><td>${esc(r.mitarbeiter)}</td><td class="right">${Number(r.internal||0).toFixed(2)}</td><td class="right">${Number(r.total||0).toFixed(2)}</td><td class="right">${((r.pct||0)*100).toFixed(1)}%</td><td>${esc(reasonsTxt(r))}</td></tr>`).join('')}
