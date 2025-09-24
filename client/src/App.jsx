@@ -61,6 +61,8 @@ export default function App() {
     let cancelled = false
     async function load() {
       if (!auth.loggedIn) return
+      // Skip base fetch when Watchdog tab is active to avoid blocking that tab
+      if (tab === 'watchdog') return
       setLoading(true)
       setError(null)
       try {
@@ -74,7 +76,7 @@ export default function App() {
     }
     load()
     return () => { cancelled = true }
-  }, [auth.loggedIn, params.datum_von, params.datum_bis, params.unit])
+  }, [auth.loggedIn, tab, params.datum_von, params.datum_bis, params.unit])
 
   // Lazy-load Umsatzliste when Umsatzliste tab is active or params change
   useEffect(() => {
@@ -197,7 +199,7 @@ export default function App() {
             <UmsatzTab umsatzRaw={umsatzRaw} params={params} />
           )}
 
-          {tab === 'watchdog' && !loading && (
+          {tab === 'watchdog' && (
             <WatchdogTab />
           )}
         </div>
