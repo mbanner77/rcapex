@@ -294,15 +294,15 @@ export default function WatchdogTab(){
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <input className="input" placeholder="Suche…" value={rawQ} onChange={(e)=>setRawQ(e.target.value)} />
                 <button className="btn" onClick={()=>{
-                  const lines = ['MITARBEITER;PROJEKT;NAME;DATUM;STUNDEN;INT']
-                  for (const r of (raw.sample||[])) lines.push([
-                    String(r.MITARBEITER||'').replaceAll(';',','),
-                    String(r.PROJEKT||'').replaceAll(';',','),
-                    String(r.NAME||'').replaceAll(';',','),
-                    String(r.DATUM||''),
-                    String(r.STUNDEN||0),
-                    String(r.INT?'1':'0')
-                  ].join(';'))
+                  const rows = Array.isArray(raw.sampleFull) && raw.sampleFull.length ? raw.sampleFull : (raw.sample||[])
+                  if (!rows.length){ alert('Keine Daten'); return }
+                  // Collect all keys
+                  const keysSet = new Set()
+                  for (const r of rows){ Object.keys(r||{}).forEach(k=>keysSet.add(k)) }
+                  const keys = Array.from(keysSet)
+                  const safe = (s)=> String(s??'').replaceAll(';', ',').replaceAll('\n',' ')
+                  const lines = [keys.join(';')]
+                  for (const r of rows){ lines.push(keys.map(k=> safe(r?.[k])).join(';')) }
                   const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8' })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')

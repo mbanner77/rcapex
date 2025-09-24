@@ -334,6 +334,7 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
     const weeks = new Set()
     const fields = {}
     const sample = []
+    const sampleFull = items.slice(0, limit)
     for (const r of items.slice(0, limit)) {
       sample.push({
         MITARBEITER: r?.MITARBEITER ?? r?.mitarbeiter,
@@ -352,7 +353,7 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
       } catch {}
       for (const k of Object.keys(r||{})) fields[k] = true
     }
-    res.json({ ok: true, range, count: items.length, internalDetected: internalCnt, weeks: Array.from(weeks), fields: Object.keys(fields), sample })
+    res.json({ ok: true, range, count: items.length, internalDetected: internalCnt, weeks: Array.from(weeks), fields: Object.keys(fields), sample, sampleFull })
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });
