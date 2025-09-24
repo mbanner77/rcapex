@@ -96,20 +96,30 @@ function isoWeekId(d){
   return `${year}-W${w}`
 }
 function isInternalProject(row){
-  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase()
-  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase()
-  // consider internal if code or name contains 'INT' anywhere
-  return code.includes('INT') || name.includes('INT')
+  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
+  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
+  // accept clear prefixes
+  if (code.startsWith('INT') || name.startsWith('INT')) return true
+  // tokenize on non-alnum and check token equals 'INT'
+  const tokens = (code + ' ' + name).split(/[^A-Z0-9]+/).filter(Boolean)
+  return tokens.includes('INT')
 }
 
 // Compute weekly internal share per employee for a given date range (inclusive)
 async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis }){
   const type = 'zeiten'
-  const items = await getAggregatedItems({ type, unit, datum_von, datum_bis })
+  // Always compute totals from ALL units
+  const itemsAll = await getAggregatedItems({ type, unit: 'ALL', datum_von, datum_bis })
+  // If a specific unit is selected, we use it only to filter the employee set
+  let empSetFilter = null
+  if (unit && unit !== 'ALL') {
+    const itemsUnit = await getAggregatedItems({ type, unit, datum_von, datum_bis })
+    empSetFilter = new Set(itemsUnit.map(r => (r?.MITARBEITER ?? r?.mitarbeiter ?? '—').toString()))
+  }
   // Map: weekId -> emp -> { total, internal }
   const weekEmp = new Map()
   const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }
-  for (const r of items) {
+  for (const r of itemsAll) {
     // find a date for this entry – prefer DATUM fields
     const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
     let d = undefined
@@ -117,6 +127,7 @@ async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis 
     if (!d || isNaN(d.getTime())) continue
     const wid = isoWeekId(d)
     const emp = (r?.MITARBEITER ?? r?.mitarbeiter ?? '—').toString()
+    if (empSetFilter && !empSetFilter.has(emp)) continue
     const val = toNumber(r?.stunden_gel ?? r?.STD_GELEISTET ?? r?.STUNDEN ?? r?.stunden ?? r?.ZEIT ?? r?.zeit ?? 0)
     if (!val) continue
     if (!weekEmp.has(wid)) weekEmp.set(wid, new Map())
