@@ -29,7 +29,8 @@ export default function WatchdogTab(){
   const [showRaw, setShowRaw] = useState(false)
   const [raw, setRaw] = useState({ fields: [], sample: [], sampleFull: [], count: 0 })
   const [rawQ, setRawQ] = useState('')
-  const [rawTab, setRawTab] = useState('debug') // 'debug' | 'report'
+  const [rawTab, setRawTab] = useState('debug') // 'debug' | 'report' | 'original'
+  const [orig, setOrig] = useState({ units: [], totalCount: 0, loading:false, error:'' })
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -311,37 +312,45 @@ export default function WatchdogTab(){
       )}
       {showRaw && (
         <div className="modal-overlay" onClick={()=>setShowRaw(false)}>
-          <div className="modal" onClick={(e)=>e.stopPropagation()}>
+          <div className="modal modal-wide" onClick={(e)=>e.stopPropagation()}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, marginBottom:8 }}>
               <strong>Watchdog Rohdaten</strong>
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <input className="input" placeholder="Suche…" value={rawQ} onChange={(e)=>setRawQ(e.target.value)} />
+                <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" onChange={(e)=>{
+                  const el = document.querySelector('#raw-table')
+                  if (!el) return
+                  el.classList.toggle('wrap', e.target.checked)
+                  el.classList.toggle('nowrap', !e.target.checked)
+                }} style={{ marginRight:6 }} />Zeilenumbruch</label>
                 <button className="btn" onClick={()=>{
                   // Determine current dataset by tab
                   const rows = rawTab==='debug' 
                     ? (Array.isArray(raw.sampleFull) && raw.sampleFull.length ? raw.sampleFull : (raw.sample||[]))
-                    : ([...(data.rows||[]), ...(((data.offenders||[]))||[])])
+                    : (rawTab==='report' ? ([...(data.rows||[]), ...(((data.offenders||[]))||[])]) : (orig.units||[]).flatMap(u=>u.items||[]))
                   if (!rows.length){ alert('Keine Daten'); return }
                   // Collect all keys
                   const keysSet = new Set()
                   for (const r of rows){ Object.keys(r||{}).forEach(k=>keysSet.add(k)) }
                   const keys = Array.from(keysSet)
-                  const safe = (s)=> String(s??'').replaceAll(';', ',').replaceAll('\n',' ')
+                  const safe = (s)=> String(s??'').replaceAll(';', ',').replaceAll('\\n',' ')
                   const lines = [keys.join(';')]
                   for (const r of rows){ lines.push(keys.map(k=> safe(r?.[k])).join(';')) }
-                  const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8' })
+                  const blob = new Blob([lines.join('\\n')], { type:'text/csv;charset=utf-8' })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
-                  a.href = url; a.download = rawTab==='debug' ? 'watchdog_raw.csv' : 'watchdog_report_all.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+                  const fname = rawTab==='debug' ? 'watchdog_raw.csv' : (rawTab==='report' ? 'watchdog_report_all.csv' : 'watchdog_original_all.csv')
+                  a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
                 }}>CSV (Alles)</button>
                 <button className="btn" onClick={()=>{
                   const rows = rawTab==='debug' 
                     ? (Array.isArray(raw.sampleFull) && raw.sampleFull.length ? raw.sampleFull : (raw.sample||[]))
-                    : ([...(data.rows||[]), ...(((data.offenders||[]))||[])])
+                    : (rawTab==='report' ? ([...(data.rows||[]), ...(((data.offenders||[]))||[])]) : (orig.units||[]).flatMap(u=>u.items||[]))
                   const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
-                  a.href = url; a.download = rawTab==='debug' ? 'watchdog_raw.json' : 'watchdog_report_all.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+                  const fname = rawTab==='debug' ? 'watchdog_raw.json' : (rawTab==='report' ? 'watchdog_report_all.json' : 'watchdog_original_all.json')
+                  a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
                 }}>JSON (Alles)</button>
                 <button className="btn" onClick={()=>setShowRaw(false)}>Schließen</button>
               </div>
@@ -349,12 +358,24 @@ export default function WatchdogTab(){
             <div style={{ display:'flex', gap:8, marginBottom:8 }}>
               <button className={`btn ${rawTab==='debug' ? 'active' : ''}`} onClick={()=>setRawTab('debug')}>API-Rohdaten</button>
               <button className={`btn ${rawTab==='report' ? 'active' : ''}`} onClick={()=>setRawTab('report')}>Report-Daten</button>
+              <button className={`btn ${rawTab==='original' ? 'active' : ''}`} onClick={async()=>{
+                setRawTab('original')
+                if (!orig.units.length){
+                  try{
+                    setOrig(o=>({ ...o, loading:true, error:'' }))
+                    const params = new URLSearchParams({ unit, weeksBack: String(weeksBack), limit: '500' })
+                    const r = await fetch(`/api/watchdogs/internal/debug-original?${params.toString()}`)
+                    const j = await r.json()
+                    setOrig({ units: Array.isArray(j?.units)? j.units : [], totalCount: Number(j?.totalCount||0), loading:false, error:'' })
+                  }catch(e){ setOrig({ units: [], totalCount:0, loading:false, error: String(e?.message||e) }) }
+                }
+              }}>Original API</button>
             </div>
             {rawTab==='debug' ? (
               <>
                 <div style={{ color:'var(--muted)', marginBottom:6 }}>Datensätze gesamt: {raw.count} · Anzeige: {(raw.sample||[]).length}</div>
                 <div style={{ maxHeight:'70vh', overflow:'auto' }}>
-                  <table className="table" style={{ minWidth:800 }}>
+                  <table id="raw-table" className="table sticky nowrap" style={{ minWidth:1200 }}>
                     <thead>
                       <tr><th>Mitarbeiter</th><th>Projekt</th><th>Name</th><th>Datum</th><th className="right">Stunden</th><th>INT</th></tr>
                     </thead>
@@ -377,11 +398,11 @@ export default function WatchdogTab(){
                   </table>
                 </div>
               </>
-            ) : (
+            ) : rawTab==='report' ? (
               <>
                 <div style={{ color:'var(--muted)', marginBottom:6 }}>Report-Daten: rows={Array.isArray(data.rows)? data.rows.length : 0} · offenders={Array.isArray(data.offenders)? data.offenders.length : 0}</div>
                 <div style={{ maxHeight:'70vh', overflow:'auto' }}>
-                  <table className="table" style={{ minWidth:800 }}>
+                  <table id="raw-table" className="table sticky nowrap" style={{ minWidth:1200 }}>
                     <thead>
                       <tr><th>Woche</th><th>Mitarbeiter</th><th className="right">Intern</th><th className="right">Gesamt</th><th className="right">Anteil</th><th>Gründe</th></tr>
                     </thead>
@@ -402,6 +423,38 @@ export default function WatchdogTab(){
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ color:'var(--muted)', marginBottom:6 }}>Originale API-Daten · Gesamt: {orig.totalCount} {orig.loading? '· Lade…' : ''} {orig.error? `· Fehler: ${orig.error}` : ''}</div>
+                <div style={{ maxHeight:'70vh', overflow:'auto', display:'grid', gap:16 }}>
+                  {(orig.units||[]).map((u, idx)=>{
+                    // build dynamic columns for this unit's items
+                    const items = Array.isArray(u.items)? u.items : []
+                    const keys = Array.from(items.reduce((s,r)=>{ Object.keys(r||{}).forEach(k=>s.add(k)); return s }, new Set()))
+                    return (
+                      <div key={idx} className="panel" style={{ padding:8 }}>
+                        <div style={{ marginBottom:6 }}><strong>Unit:</strong> {u.unit} · <span className="muted">Anzahl: {u.count} · Anzeige: {items.length}</span></div>
+                        <div style={{ overflow:'auto' }}>
+                          <table className="table sticky nowrap dense" style={{ minWidth: Math.max(1200, keys.length*140) }}>
+                            <thead>
+                              <tr>{keys.map(k=> <th key={k}>{k}</th>)}</tr>
+                            </thead>
+                            <tbody>
+                              {items.filter(r=>{
+                                const q=(rawQ||'').toLowerCase().trim(); if(!q) return true
+                                const hay = keys.map(k=> String(r?.[k]||'')).join(' ').toLowerCase()
+                                return hay.includes(q)
+                              }).map((r,i)=> (
+                                <tr key={i}>{keys.map(k=> <td key={k}>{String(r?.[k]??'')}</td>)}</tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}

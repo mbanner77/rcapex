@@ -110,6 +110,48 @@ async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis 
   const type = 'zeiten'
   // Always compute totals from ALL units
   const itemsAll = await getAggregatedItems({ type, unit: 'ALL', datum_von, datum_bis })
+
+// DEBUG: return original, unmodified API payloads per unit (no field mapping or annotation)
+app.get('/api/watchdogs/internal/debug-original', async (req, res) => {
+  try {
+    const unit = req.query.unit || 'ALL'
+    const weeksBack = Math.max(1, Math.min(12, Number(req.query.weeksBack || 1)))
+    const limit = Math.max(1, Math.min(20000, Number(req.query.limit || 2000)))
+    // same range calc as watchdog
+    const now = new Date()
+    const day = now.getUTCDay() || 7
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day, 23, 59, 59))
+    const start = new Date(end)
+    start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6))
+    const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
+
+    const baseHeaders = buildHeaders({}, { datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const path = 'zeiten/'
+    const fetchUnit = async (u) => {
+      const sp = new URLSearchParams({ datum_von: range.datum_von, datum_bis: range.datum_bis, unit: u })
+      const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
+      const r = await axios.get(url, { headers: { ...baseHeaders, unit: u } })
+      // return raw payload as-is
+      const payload = r.data
+      const arr = Array.isArray(payload?.items) ? payload.items : (Array.isArray(payload) ? payload : [])
+      return { unit: u, count: arr.length, items: arr.slice(0, limit), payload }
+    }
+
+    let units = []
+    if (!unit || unit === 'ALL') {
+      units = await Promise.all(resolveUnitExtIds().map(u => fetchUnit(u)))
+    } else {
+      units = [await fetchUnit(unit)]
+    }
+    const totalCount = units.reduce((a,u)=>a+u.count,0)
+    res.json({ ok: true, range, totalCount, units })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
+ 
   // If a specific unit is selected, we use it only to filter the employee set
   let empSetFilter = null
   if (unit && unit !== 'ALL') {
