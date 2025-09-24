@@ -106,6 +106,49 @@ function isInternalProject(row){
 async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis }){
   const type = 'zeiten'
   const items = await getAggregatedItems({ type, unit, datum_von, datum_bis })
+
+// DEBUG: return a sample of aggregated items and detection stats
+app.get('/api/watchdogs/internal/debug', async (req, res) => {
+  try {
+    const unit = req.query.unit || 'ALL'
+    const weeksBack = Math.max(1, Math.min(12, Number(req.query.weeksBack || 1)))
+    // same range calc as watchdog
+    const now = new Date()
+    const day = now.getUTCDay() || 7
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day, 23, 59, 59))
+    const start = new Date(end)
+    start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6))
+    const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
+    const items = await getAggregatedItems({ type: 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    // Stats
+    let internalCnt = 0
+    const weeks = new Set()
+    const fields = {}
+    const sample = []
+    for (const r of items.slice(0, 50)) {
+      sample.push({
+        MITARBEITER: r?.MITARBEITER ?? r?.mitarbeiter,
+        PROJEKT: r?.PROJEKT ?? r?.projekt ?? r?.projektcode,
+        NAME: r?.projektname ?? r?.PROJEKTNAME ?? r?.projekt,
+        DATUM: r?.DATUM ?? r?.datum ?? r?.DATE ?? r?.date ?? r?.BUCHUNGSDATUM ?? r?.buchungsdatum,
+        STUNDEN: r?.STUNDEN ?? r?.stunden ?? r?.STD_GELEISTET ?? r?.stunden_gel,
+        INT: isInternalProject(r)
+      })
+    }
+    for (const r of items) {
+      if (isInternalProject(r)) internalCnt++
+      try {
+        const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
+        if (dstr) weeks.add(isoWeekId(new Date(dstr)))
+      } catch {}
+      for (const k of Object.keys(r||{})) fields[k] = true
+    }
+    res.json({ ok: true, range, count: items.length, internalDetected: internalCnt, weeks: Array.from(weeks), fields: Object.keys(fields), sample })
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
   // Map: weekId -> emp -> { total, internal }
   const weekEmp = new Map()
   const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }

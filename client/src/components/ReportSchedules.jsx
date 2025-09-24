@@ -72,6 +72,11 @@ export default function ReportSchedules({ onClose }){
       recipients: Array.isArray(item?.recipients) ? item.recipients : [],
       threshold: typeof item?.threshold === 'number' ? item.threshold : 0.2,
       weeksBack: Number(item?.weeksBack || 1),
+      useInternalShare: (item?.useInternalShare ?? true) !== false,
+      useZeroLastWeek: (item?.useZeroLastWeek ?? true) !== false,
+      useMinTotal: (item?.useMinTotal ?? false) === true,
+      minTotalHours: Number(item?.minTotalHours || 0),
+      combine: item?.combine === 'and' ? 'and' : 'or',
     })
   }
 
@@ -117,6 +122,10 @@ export default function ReportSchedules({ onClose }){
       if (!(th >= 0 && th <= 1)) return 'Schwellwert (threshold) muss zwischen 0 und 1 liegen (z.B. 0.2)'
       const wb = Number(form.weeksBack)
       if (!(wb >= 1 && wb <= 12)) return 'Wochen zurück (1-12)'
+      if (form.useMinTotal) {
+        const mt = Number(form.minTotalHours)
+        if (!(mt >= 0)) return 'Min. Gesamtstunden muss >= 0 sein'
+      }
     }
     return ''
   }
@@ -197,14 +206,14 @@ export default function ReportSchedules({ onClose }){
                   <div style={{ color:'var(--muted)' }}>Keine Einträge</div>
                 ) : (
                   <div style={{ overflowX:'auto' }}>
-                    <table className="table" style={{ width:'100%', minWidth: 900, fontSize:13 }}>
+                    <table className="table" style={{ width:'100%', minWidth: 1100, fontSize:13 }}>
                       <thead>
                         <tr>
                           <th>Name</th>
                           <th>Aktiv</th>
                           <th>Typ</th>
                           <th>Unit</th>
-                          <th>Range</th>
+                          <th>Range/Regeln</th>
                           <th>Häufigkeit</th>
                           <th>Uhrzeit (UTC)</th>
                           <th>Empfänger</th>
@@ -216,9 +225,22 @@ export default function ReportSchedules({ onClose }){
                           <tr key={it.id}>
                             <td>{it.name || '-'}</td>
                             <td>{it.active ? 'Ja' : 'Nein'}</td>
-                            <td>{it.report}</td>
+                            <td>{it.kind === 'watchdog_internal' ? 'Watchdog' : `Report: ${it.report}`}</td>
                             <td>{it.unit || 'ALL'}</td>
-                            <td>{it.rangePreset}</td>
+                            <td>
+                              {it.kind === 'watchdog_internal' ? (
+                                <>
+                                  <div>Weeks: {it.weeksBack||1} • Thresh: {(Number(it.threshold||0)*100).toFixed(0)}% • Comb: {it.combine||'or'}</div>
+                                  <div style={{ color:'var(--muted)' }}>
+                                    {it.useInternalShare!==false ? 'INT-Share ' : ''}
+                                    {it.useZeroLastWeek!==false ? 'Zero-LastWeek ' : ''}
+                                    {it.useMinTotal ? `MinTotal ${it.minTotalHours||0}h` : ''}
+                                  </div>
+                                </>
+                              ) : (
+                                it.rangePreset
+                              )}
+                            </td>
                             <td>{it.frequency}</td>
                             <td>{it.at || '06:00'}</td>
                             <td>{Array.isArray(it.recipients) ? it.recipients.join(', ') : ''}</td>
@@ -294,6 +316,19 @@ export default function ReportSchedules({ onClose }){
                     </Labeled>
                     <Labeled label="Wochen zurück (1-12)">
                       <input className="input" type="number" min={1} max={12} value={form.weeksBack} onChange={(e)=>update('weeksBack', Math.max(1, Math.min(12, Number(e.target.value))))} />
+                    </Labeled>
+                    <Labeled label="Regeln">
+                      <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                        <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={form.useInternalShare!==false} onChange={(e)=>update('useInternalShare', e.target.checked)} style={{ marginRight:6 }} />Interner Anteil</label>
+                        <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={form.useZeroLastWeek!==false} onChange={(e)=>update('useZeroLastWeek', e.target.checked)} style={{ marginRight:6 }} />0h letzte Woche</label>
+                        <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={!!form.useMinTotal} onChange={(e)=>update('useMinTotal', e.target.checked)} style={{ marginRight:6 }} />Min. Gesamt (h)</label>
+                        <input className="input" type="number" min={0} step={0.5} value={form.minTotalHours||0} onChange={(e)=>update('minTotalHours', Math.max(0, Number(e.target.value)))} style={{ width:130 }} disabled={!form.useMinTotal} />
+                        <label style={{ color:'var(--muted)', fontSize:12 }}>Kombination</label>
+                        <select className="input" value={form.combine||'or'} onChange={(e)=>update('combine', e.target.value)}>
+                          <option value="or">ODER</option>
+                          <option value="and">UND</option>
+                        </select>
+                      </div>
                     </Labeled>
                   </>
                 )}
