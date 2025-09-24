@@ -27,8 +27,9 @@ export default function WatchdogTab(){
   const [showPreview, setShowPreview] = useState(false)
   const [diag, setDiag] = useState({ checked:false, count:0, internalDetected:0 })
   const [showRaw, setShowRaw] = useState(false)
-  const [raw, setRaw] = useState({ fields: [], sample: [], count: 0 })
+  const [raw, setRaw] = useState({ fields: [], sample: [], sampleFull: [], count: 0 })
   const [rawQ, setRawQ] = useState('')
+  const [rawTab, setRawTab] = useState('debug') // 'debug' | 'report'
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -185,7 +186,29 @@ export default function WatchdogTab(){
           </select>
           <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={offendersOnly} onChange={(e)=>setOffendersOnly(e.target.checked)} style={{ marginRight:6 }} />nur Verstöße</label>
           <input className="input" placeholder="Suche (Woche/Mitarbeiter)" value={query} onChange={(e)=>setQuery(e.target.value)} style={{ width:260 }} />
-          <button className="btn" onClick={exportCsv}>CSV Export</button>
+          <button className="btn" title="Export der aktuell angezeigten (gefilterten/sortierten) Tabelle" onClick={exportCsv}>CSV (Anzeige)</button>
+          <button className="btn" title="1:1 Export der API-Daten, die für die Anzeige geladen wurden" onClick={()=>{
+            try{
+              const makeCsv = (rows, name)=>{
+                if(!Array.isArray(rows) || rows.length===0) return
+                const keysSet = new Set(); rows.forEach(r=> Object.keys(r||{}).forEach(k=> keysSet.add(k)))
+                const keys = Array.from(keysSet)
+                const safe = (v)=>{
+                  if (Array.isArray(v)) return JSON.stringify(v)
+                  if (v && typeof v==='object') return JSON.stringify(v)
+                  return String(v??'').replaceAll(';', ',').replaceAll('\n',' ')
+                }
+                const lines = [keys.join(';')]
+                for (const r of rows){ lines.push(keys.map(k=> safe(r?.[k])).join(';')) }
+                const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+              }
+              makeCsv(data.rows||[], 'watchdog_report_rows.csv')
+              makeCsv(data.offenders||[], 'watchdog_report_offenders.csv')
+            }catch(e){ alert('Fehler beim API-CSV-Export: '+(e?.message||e)) }
+          }}>CSV (API)</button>
           <button className="btn" onClick={sendMail}>Warnmail senden…</button>
           <div style={{ width:8 }} />
           <button className="btn" title="Preset: Streng" onClick={()=>setPreset('strict')}>Preset: Streng</button>
@@ -198,7 +221,7 @@ export default function WatchdogTab(){
               const params = new URLSearchParams({ unit, weeksBack: String(weeksBack), limit: '1000' })
               const r = await fetch(`/api/watchdogs/internal/debug?${params.toString()}`)
               const j = await r.json()
-              setRaw({ fields: j?.fields||[], sample: Array.isArray(j?.sample)? j.sample : [], count: Number(j?.count||0) })
+              setRaw({ fields: j?.fields||[], sample: Array.isArray(j?.sample)? j.sample : [], sampleFull: Array.isArray(j?.sampleFull)? j.sampleFull : [], count: Number(j?.count||0) })
               setShowRaw(true)
             }catch(e){ alert('Fehler beim Laden der Rohdaten: '+(e?.message||e)) }
           }}>Rohdaten ansehen</button>
@@ -294,7 +317,10 @@ export default function WatchdogTab(){
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <input className="input" placeholder="Suche…" value={rawQ} onChange={(e)=>setRawQ(e.target.value)} />
                 <button className="btn" onClick={()=>{
-                  const rows = Array.isArray(raw.sampleFull) && raw.sampleFull.length ? raw.sampleFull : (raw.sample||[])
+                  // Determine current dataset by tab
+                  const rows = rawTab==='debug' 
+                    ? (Array.isArray(raw.sampleFull) && raw.sampleFull.length ? raw.sampleFull : (raw.sample||[]))
+                    : ([...(data.rows||[]), ...(((data.offenders||[]))||[])])
                   if (!rows.length){ alert('Keine Daten'); return }
                   // Collect all keys
                   const keysSet = new Set()
@@ -306,35 +332,79 @@ export default function WatchdogTab(){
                   const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8' })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
-                  a.href = url; a.download = 'watchdog_raw.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-                }}>CSV</button>
+                  a.href = url; a.download = rawTab==='debug' ? 'watchdog_raw.csv' : 'watchdog_report_all.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+                }}>CSV (Alles)</button>
+                <button className="btn" onClick={()=>{
+                  const rows = rawTab==='debug' 
+                    ? (Array.isArray(raw.sampleFull) && raw.sampleFull.length ? raw.sampleFull : (raw.sample||[]))
+                    : ([...(data.rows||[]), ...(((data.offenders||[]))||[])])
+                  const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = rawTab==='debug' ? 'watchdog_raw.json' : 'watchdog_report_all.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+                }}>JSON (Alles)</button>
                 <button className="btn" onClick={()=>setShowRaw(false)}>Schließen</button>
               </div>
             </div>
-            <div style={{ color:'var(--muted)', marginBottom:6 }}>Datensätze gesamt: {raw.count} · Anzeige: {(raw.sample||[]).length}</div>
-            <div style={{ maxHeight:'70vh', overflow:'auto' }}>
-              <table className="table" style={{ minWidth:800 }}>
-                <thead>
-                  <tr><th>Mitarbeiter</th><th>Projekt</th><th>Name</th><th>Datum</th><th className="right">Stunden</th><th>INT</th></tr>
-                </thead>
-                <tbody>
-                  {(raw.sample||[]).filter(r=>{
-                    const q=(rawQ||'').toLowerCase().trim(); if(!q) return true
-                    const hay = `${r.MITARBEITER} ${r.PROJEKT} ${r.NAME} ${r.DATUM}`.toLowerCase()
-                    return hay.includes(q)
-                  }).map((r, i)=> (
-                    <tr key={i}>
-                      <td>{r.MITARBEITER}</td>
-                      <td>{r.PROJEKT}</td>
-                      <td>{r.NAME}</td>
-                      <td>{String(r.DATUM||'').slice(0,10)}</td>
-                      <td className="right">{fmt(r.STUNDEN)}</td>
-                      <td>{r.INT? 'ja' : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+              <button className={`btn ${rawTab==='debug' ? 'active' : ''}`} onClick={()=>setRawTab('debug')}>API-Rohdaten</button>
+              <button className={`btn ${rawTab==='report' ? 'active' : ''}`} onClick={()=>setRawTab('report')}>Report-Daten</button>
             </div>
+            {rawTab==='debug' ? (
+              <>
+                <div style={{ color:'var(--muted)', marginBottom:6 }}>Datensätze gesamt: {raw.count} · Anzeige: {(raw.sample||[]).length}</div>
+                <div style={{ maxHeight:'70vh', overflow:'auto' }}>
+                  <table className="table" style={{ minWidth:800 }}>
+                    <thead>
+                      <tr><th>Mitarbeiter</th><th>Projekt</th><th>Name</th><th>Datum</th><th className="right">Stunden</th><th>INT</th></tr>
+                    </thead>
+                    <tbody>
+                      {(raw.sample||[]).filter(r=>{
+                        const q=(rawQ||'').toLowerCase().trim(); if(!q) return true
+                        const hay = `${r.MITARBEITER} ${r.PROJEKT} ${r.NAME} ${r.DATUM}`.toLowerCase()
+                        return hay.includes(q)
+                      }).map((r, i)=> (
+                        <tr key={i}>
+                          <td>{r.MITARBEITER}</td>
+                          <td>{r.PROJEKT}</td>
+                          <td>{r.NAME}</td>
+                          <td>{String(r.DATUM||'').slice(0,10)}</td>
+                          <td className="right">{fmt(r.STUNDEN)}</td>
+                          <td>{r.INT? 'ja' : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ color:'var(--muted)', marginBottom:6 }}>Report-Daten: rows={Array.isArray(data.rows)? data.rows.length : 0} · offenders={Array.isArray(data.offenders)? data.offenders.length : 0}</div>
+                <div style={{ maxHeight:'70vh', overflow:'auto' }}>
+                  <table className="table" style={{ minWidth:800 }}>
+                    <thead>
+                      <tr><th>Woche</th><th>Mitarbeiter</th><th className="right">Intern</th><th className="right">Gesamt</th><th className="right">Anteil</th><th>Gründe</th></tr>
+                    </thead>
+                    <tbody>
+                      {[...(data.rows||[])].filter(r=>{
+                        const q=(rawQ||'').toLowerCase().trim(); if(!q) return true
+                        const hay = `${r.week} ${r.mitarbeiter} ${((r.reasons||[]).map(x=>x.type).join(' '))}`.toLowerCase()
+                        return hay.includes(q)
+                      }).map((r, i)=> (
+                        <tr key={i}>
+                          <td>{r.week}</td>
+                          <td>{r.mitarbeiter}</td>
+                          <td className="right">{fmt(r.internal)}</td>
+                          <td className="right">{fmt(r.total)}</td>
+                          <td className="right">{((r.pct||0)*100).toFixed(1)}%</td>
+                          <td>{Array.isArray(r.reasons)? r.reasons.map(x=>x.type).join(', ') : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
