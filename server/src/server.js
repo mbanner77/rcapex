@@ -98,7 +98,8 @@ function isoWeekId(d){
 function isInternalProject(row){
   const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase()
   const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase()
-  return code.startsWith('INT') || name.startsWith('INT')
+  // consider internal if code or name contains 'INT' anywhere
+  return code.includes('INT') || name.includes('INT')
 }
 
 // Compute weekly internal share per employee for a given date range (inclusive)
@@ -172,7 +173,7 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
     const reasons = []
     // internal share rule (any week in range exceeding threshold)
     if (useInternalShare) {
-      const exceeded = rows.filter(r => r.mitarbeiter===e && r.pct > Number(threshold||0.2))
+      const exceeded = rows.filter(r => r.mitarbeiter===e && r.pct >= Number(threshold||0.2))
       if (exceeded.length>0) reasons.push({ type:'internal_share', weeks: exceeded.map(x=>x.week), value: Math.max(...exceeded.map(x=>x.pct||0)) })
     }
     // zero last week rule
