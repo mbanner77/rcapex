@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fetchInternalWatchdogReport, runInternalWatchdog, getMailSettings } from '../lib/api'
 import { getUnits } from '../lib/constants'
+import InternalMappingDialog from './InternalMappingDialog'
+import { getInternalMapping } from '../lib/mapping'
 
 function fmt(n){
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
@@ -31,11 +33,18 @@ export default function WatchdogTab(){
   const [rawQ, setRawQ] = useState('')
   const [rawTab, setRawTab] = useState('debug') // 'debug' | 'report' | 'original'
   const [orig, setOrig] = useState({ units: [], totalCount: 0, loading:false, error:'' })
+  const [showMapping, setShowMapping] = useState(false)
+  const [mapping, setMapping] = useState(() => getInternalMapping())
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
+    const onMap = () => setMapping(getInternalMapping())
     window.addEventListener('units_changed', onUnits)
-    return () => window.removeEventListener('units_changed', onUnits)
+    window.addEventListener('internal_mapping_changed', onMap)
+    return () => { 
+      window.removeEventListener('units_changed', onUnits)
+      window.removeEventListener('internal_mapping_changed', onMap)
+    }
   }, [])
 
   useEffect(() => {
@@ -43,14 +52,14 @@ export default function WatchdogTab(){
     async function load(){
       setLoading(true); setError('')
       try{
-        const r = await fetchInternalWatchdogReport({ unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
+        const r = await fetchInternalWatchdogReport({ unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mappingProjects: (mapping.projects||[]), mappingTokens: (mapping.tokens||[]) })
         if (!cancelled) setData({ rows: r.rows||[], offenders: r.offenders||[], range: r.range||{} })
       }catch(e){ if(!cancelled) setError(e?.response?.data?.message || e.message) }
       finally{ if(!cancelled) setLoading(false) }
     }
     load()
     return () => { cancelled = true }
-  }, [unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine])
+  }, [unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping])
 
   function buildPreviewUrl(){
     const params = new URLSearchParams({
@@ -63,6 +72,11 @@ export default function WatchdogTab(){
       minTotalHours: String(minTotalHours),
       combine
     })
+    // pass mapping as CSV lists for server preview (if supported)
+    const p = (mapping.projects||[]).filter(Boolean).join(',')
+    const t = (mapping.tokens||[]).filter(Boolean).join(',')
+    if (p) params.set('mappingProjects', p)
+    if (t) params.set('mappingTokens', t)
     return `/api/watchdogs/internal/preview-page?${params.toString()}`
   }
 
@@ -150,7 +164,7 @@ export default function WatchdogTab(){
     let to = prompt('Empfänger E-Mail (Kommagetrennt):', mailDefaults.defaultRecipient || '')
     if (!to) return
     try{
-      await runInternalWatchdog({ unit, to, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
+      await runInternalWatchdog({ unit, to, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mappingProjects: (mapping.projects||[]), mappingTokens: (mapping.tokens||[]) })
       alert('Watchdog-Mail wurde gesendet.')
     }catch(e){ alert('Fehler: ' + (e?.response?.data?.message || e.message)) }
   }
@@ -210,6 +224,7 @@ export default function WatchdogTab(){
               makeCsv(data.offenders||[], 'watchdog_report_offenders.csv')
             }catch(e){ alert('Fehler beim API-CSV-Export: '+(e?.message||e)) }
           }}>CSV (API)</button>
+          <button className="btn" onClick={()=>setShowMapping(true)}>Interne Projekte…</button>
           <button className="btn" onClick={sendMail}>Warnmail senden…</button>
           <div style={{ width:8 }} />
           <button className="btn" title="Preset: Streng" onClick={()=>setPreset('strict')}>Preset: Streng</button>
@@ -309,6 +324,9 @@ export default function WatchdogTab(){
             <iframe title="Watchdog Preview" src={buildPreviewUrl()} style={{ width:'100%', height:'70vh', border:'0', borderRadius:8, background:'#fff' }} />
           </div>
         </div>
+      )}
+      {showMapping && (
+        <InternalMappingDialog onClose={()=>setShowMapping(false)} />
       )}
       {showRaw && (
         <div className="modal-overlay" onClick={()=>setShowRaw(false)}>
