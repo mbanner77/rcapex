@@ -8,6 +8,7 @@ import UmsatzTab from './components/UmsatzTab.jsx'
 import CustomerTable from './components/CustomerTable.jsx'
 import HoursByCustomerChart from './components/HoursByCustomerChart.jsx'
 import AnalyticsTab from './components/AnalyticsTab.jsx'
+import WatchdogTab from './components/WatchdogTab.jsx'
 import ComparisonTab from './components/ComparisonTab.jsx'
 import TrendTab from './components/TrendTab.jsx'
 import EmployeeTab from './components/EmployeeTab.jsx'
@@ -34,7 +35,7 @@ const DEFAULTS = {
 export default function App() {
   const [gate, setGate] = useState(false)
   const [auth, setAuth] = useState({ checked: false, loggedIn: false, username: null })
-  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste'
+  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog'
   const [params, setParams] = useState(DEFAULTS)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -155,6 +156,7 @@ export default function App() {
             <div className={`tab ${tab==='compare' ? 'active' : ''}`} onClick={() => setTab('compare')}>Vergleich</div>
             <div className={`tab ${tab==='trends' ? 'active' : ''}`} onClick={() => setTab('trends')}>Trends</div>
             <div className={`tab ${tab==='umsatzliste' ? 'active' : ''}`} onClick={() => setTab('umsatzliste')}>Umsatzliste</div>
+            <div className={`tab ${tab==='watchdog' ? 'active' : ''}`} onClick={() => setTab('watchdog')}>Watchdog</div>
           </div>
 
           {kundenAgg && (
@@ -193,6 +195,10 @@ export default function App() {
 
           {tab === 'umsatzliste' && !loading && (
             <UmsatzTab umsatzRaw={umsatzRaw} params={params} />
+          )}
+
+          {tab === 'watchdog' && !loading && (
+            <WatchdogTab />
           )}
         </div>
       </div>
