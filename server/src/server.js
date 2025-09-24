@@ -320,6 +320,7 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
   try {
     const unit = req.query.unit || 'ALL'
     const weeksBack = Math.max(1, Math.min(12, Number(req.query.weeksBack || 1)))
+    const limit = Math.max(1, Math.min(5000, Number(req.query.limit || 500)))
     // same range calc as watchdog
     const now = new Date()
     const day = now.getUTCDay() || 7
@@ -333,7 +334,7 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
     const weeks = new Set()
     const fields = {}
     const sample = []
-    for (const r of items.slice(0, 50)) {
+    for (const r of items.slice(0, limit)) {
       sample.push({
         MITARBEITER: r?.MITARBEITER ?? r?.mitarbeiter,
         PROJEKT: r?.PROJEKT ?? r?.projekt ?? r?.projektcode,

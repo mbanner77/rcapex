@@ -26,6 +26,9 @@ export default function WatchdogTab(){
   const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
   const [showPreview, setShowPreview] = useState(false)
   const [diag, setDiag] = useState({ checked:false, count:0, internalDetected:0 })
+  const [showRaw, setShowRaw] = useState(false)
+  const [raw, setRaw] = useState({ fields: [], sample: [], count: 0 })
+  const [rawQ, setRawQ] = useState('')
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -190,6 +193,15 @@ export default function WatchdogTab(){
           <div style={{ width:8 }} />
           <button className="btn" onClick={()=>setShowPreview(true)}>Vorschau anzeigen</button>
           <button className="btn" onClick={checkData}>Daten prüfen</button>
+          <button className="btn" onClick={async ()=>{
+            try{
+              const params = new URLSearchParams({ unit, weeksBack: String(weeksBack), limit: '1000' })
+              const r = await fetch(`/api/watchdogs/internal/debug?${params.toString()}`)
+              const j = await r.json()
+              setRaw({ fields: j?.fields||[], sample: Array.isArray(j?.sample)? j.sample : [], count: Number(j?.count||0) })
+              setShowRaw(true)
+            }catch(e){ alert('Fehler beim Laden der Rohdaten: '+(e?.message||e)) }
+          }}>Rohdaten ansehen</button>
         </div>
         {diag.checked && (
           <div style={{ marginBottom:8, color:'var(--muted)' }}>Diagnose: Datensätze {diag.count} · als INTERN erkannt {diag.internalDetected}{diag.internalDetected===0? ' — Hinweis: Passen evtl. Projektbezeichnungen nicht?': ''}</div>
@@ -271,6 +283,58 @@ export default function WatchdogTab(){
               <button className="btn" onClick={()=>setShowPreview(false)}>Schließen</button>
             </div>
             <iframe title="Watchdog Preview" src={buildPreviewUrl()} style={{ width:'100%', height:'70vh', border:'0', borderRadius:8, background:'#fff' }} />
+          </div>
+        </div>
+      )}
+      {showRaw && (
+        <div className="modal-overlay" onClick={()=>setShowRaw(false)}>
+          <div className="modal" onClick={(e)=>e.stopPropagation()}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, marginBottom:8 }}>
+              <strong>Watchdog Rohdaten</strong>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <input className="input" placeholder="Suche…" value={rawQ} onChange={(e)=>setRawQ(e.target.value)} />
+                <button className="btn" onClick={()=>{
+                  const lines = ['MITARBEITER;PROJEKT;NAME;DATUM;STUNDEN;INT']
+                  for (const r of (raw.sample||[])) lines.push([
+                    String(r.MITARBEITER||'').replaceAll(';',','),
+                    String(r.PROJEKT||'').replaceAll(';',','),
+                    String(r.NAME||'').replaceAll(';',','),
+                    String(r.DATUM||''),
+                    String(r.STUNDEN||0),
+                    String(r.INT?'1':'0')
+                  ].join(';'))
+                  const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = 'watchdog_raw.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+                }}>CSV</button>
+                <button className="btn" onClick={()=>setShowRaw(false)}>Schließen</button>
+              </div>
+            </div>
+            <div style={{ color:'var(--muted)', marginBottom:6 }}>Datensätze gesamt: {raw.count} · Anzeige: {(raw.sample||[]).length}</div>
+            <div style={{ maxHeight:'70vh', overflow:'auto' }}>
+              <table className="table" style={{ minWidth:800 }}>
+                <thead>
+                  <tr><th>Mitarbeiter</th><th>Projekt</th><th>Name</th><th>Datum</th><th className="right">Stunden</th><th>INT</th></tr>
+                </thead>
+                <tbody>
+                  {(raw.sample||[]).filter(r=>{
+                    const q=(rawQ||'').toLowerCase().trim(); if(!q) return true
+                    const hay = `${r.MITARBEITER} ${r.PROJEKT} ${r.NAME} ${r.DATUM}`.toLowerCase()
+                    return hay.includes(q)
+                  }).map((r, i)=> (
+                    <tr key={i}>
+                      <td>{r.MITARBEITER}</td>
+                      <td>{r.PROJEKT}</td>
+                      <td>{r.NAME}</td>
+                      <td>{String(r.DATUM||'').slice(0,10)}</td>
+                      <td className="right">{fmt(r.STUNDEN)}</td>
+                      <td>{r.INT? 'ja' : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
