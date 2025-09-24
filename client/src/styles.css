@@ -123,6 +123,21 @@ body{
   .table{ min-width: 600px }
 }
 
+/* Mobile utilities */
+.hide-sm{ display: block }
+.show-sm{ display: none }
+@media (max-width: 600px){
+  .hide-sm{ display: none !important }
+  .show-sm{ display: block !important }
+}
+
+/* Card list for small screens */
+.card-list{ display:grid; gap:10px }
+.card{ padding:12px; border:1px solid var(--border); border-radius:12px; background: rgba(255,255,255,0.03) }
+.card .row{ display:flex; justify-content:space-between; gap:8px; margin:4px 0 }
+.badge-warn{ background:rgba(250,204,21,0.15); color:#fde68a; border:1px solid rgba(250,204,21,0.35) }
+.badge-bad{ background:rgba(239,68,68,0.18); color:#fecaca; border:1px solid rgba(239,68,68,0.35) }
+
 /* KPI grid */
 .kpi-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:12px }
 @media (max-width: 960px){ .kpi-grid{ grid-template-columns: repeat(2, 1fr) } }

@@ -160,7 +160,19 @@ export default function WatchdogTab(){
         {loading && <div>Lade…</div>}
         {!!error && <div style={{ color:'crimson' }}>Fehler: {String(error)}</div>}
         <div style={{ color:'var(--muted)', marginBottom:6 }}>Zeitraum: {(data?.range?.datum_von||'').slice(0,10)} – {(data?.range?.datum_bis||'').slice(0,10)}</div>
-        <div style={{ overflowX:'auto' }}>
+        {rows.length===0 && !loading && (
+          <div className="panel" style={{ padding:12, marginBottom:10 }}>
+            <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+              <span style={{ color:'var(--muted)' }}>Keine Daten gefunden. Prüfe Einstellungen oder die Datenbasis.</span>
+              <button className="btn" onClick={()=>{
+                // trigger reload by toggling a dependent state
+                setWeeksBack(w => w)
+              }}>Aktualisieren</button>
+              <a className="btn" href={`/api/watchdogs/internal/debug?unit=${encodeURIComponent(unit)}&weeksBack=${encodeURIComponent(weeksBack)}`} target="_blank" rel="noreferrer">Debug öffnen</a>
+            </div>
+          </div>
+        )}
+        <div className="hide-sm" style={{ overflowX:'auto' }}>
           <table className="table" style={{ minWidth: 860 }}>
             <thead>
               <tr>
@@ -192,6 +204,26 @@ export default function WatchdogTab(){
               })}
             </tbody>
           </table>
+        </div>
+        <div className="show-sm">
+          <div className="card-list">
+            {rows.map((r, idx) => {
+              const hasZero = Array.isArray(r.reasons) && r.reasons.some(x=>x.type==='zero_last_week')
+              const hasInt = Array.isArray(r.reasons) && r.reasons.some(x=>x.type==='internal_share')
+              const badgeCls = hasInt ? 'badge-bad' : (hasZero ? 'badge-warn' : 'badge')
+              const intReason = (r.reasons||[]).find(x=>x.type==='internal_share')
+              const weeksTxt = intReason && Array.isArray(intReason.weeks) ? ` (${intReason.weeks.join(',')})` : ''
+              return (
+                <div className="card" key={idx}>
+                  <div className="row"><div className="badge">{r.week}</div><div className={`badge ${badgeCls}`}>{((r.pct||0)*100).toFixed(1)}%</div></div>
+                  <div className="row"><strong>{r.mitarbeiter}</strong></div>
+                  <div className="row"><span>Intern</span><span>{fmt(r.internal)} h</span></div>
+                  <div className="row"><span>Gesamt</span><span>{fmt(r.total)} h</span></div>
+                  <div className="row"><span>Gründe</span><span>{Array.isArray(r.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share${weeksTxt}` : x.type).join(', ') : ''}</span></div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
