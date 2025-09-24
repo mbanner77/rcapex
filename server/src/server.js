@@ -262,6 +262,38 @@ app.post('/api/watchdogs/internal/run', async (req, res) => {
   }
 })
 
+// HTML preview for watchdog results (for in-app iframe)
+app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
+  function esc(s){ return String(s||'').replace(/[&<>]/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) }
+  try {
+    const unit = req.query.unit || 'ALL'
+    const threshold = Number(req.query.threshold || 0.2)
+    const weeksBack = Math.max(1, Math.min(12, Number(req.query.weeksBack || 1)))
+    const useInternalShare = String(req.query.useInternalShare ?? 'true') !== 'false'
+    const useZeroLastWeek = String(req.query.useZeroLastWeek ?? 'true') !== 'false'
+    const useMinTotal = String(req.query.useMinTotal ?? 'false') === 'true'
+    const minTotalHours = Number(req.query.minTotalHours || 0)
+    const combine = (req.query.combine === 'and') ? 'and' : 'or'
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
+    const rows = Array.isArray(result?.offenders) ? result.offenders : []
+    const reasonsTxt = (r)=> (Array.isArray(r?.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share (${(x.weeks||[]).join(',')})` : x.type).join(', ') : '')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Watchdog Preview</title>
+      <style>body{font-family: -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:10px;}table{border-collapse:collapse; width:100%;}th,td{border:1px solid #ddd; padding:6px 8px; font-size:14px}th{background:#f5f5f5; text-align:left}.right{text-align:right}.muted{color:#666}</style></head><body>
+      <div class="muted">Zeitraum: ${esc((result.range?.datum_von||'').slice(0,10))} – ${esc((result.range?.datum_bis||'').slice(0,10))} · Unit: ${esc(unit)}</div>
+      <h3>Watchdog Ergebnisse (${rows.length})</h3>
+      <table><thead><tr><th>Woche</th><th>Mitarbeiter</th><th class="right">Intern (h)</th><th class="right">Gesamt (h)</th><th class="right">Anteil Intern</th><th>Gründe</th></tr></thead>
+      <tbody>
+      ${rows.map(r => `<tr><td>${esc(r.week)}</td><td>${esc(r.mitarbeiter)}</td><td class="right">${Number(r.internal||0).toFixed(2)}</td><td class="right">${Number(r.total||0).toFixed(2)}</td><td class="right">${((r.pct||0)*100).toFixed(1)}%</td><td>${esc(reasonsTxt(r))}</td></tr>`).join('')}
+      </tbody></table>
+      </body></html>`
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.send(html)
+  } catch (e) {
+    const status = e.response?.status || 500;
+    res.status(status).send(`<pre>${esc(errMessage(e))}</pre>`)
+  }
+})
+
 // DEBUG: return a sample of aggregated items and detection stats
 app.get('/api/watchdogs/internal/debug', async (req, res) => {
   try {

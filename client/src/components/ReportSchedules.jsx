@@ -247,13 +247,32 @@ export default function ReportSchedules({ onClose }){
                             <td style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                               <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
                               <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
-                              <button className="btn" onClick={async ()=>{
-                                try{
-                                  const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
-                                  const url = `/api/reports/preview-page?${params.toString()}`
-                                  setPreviewUrl(url)
-                                }catch(e){ alert('Fehler bei PDF-Vorschau: ' + (e?.response?.data?.message || e.message)) }
-                              }}>PDF ansehen</button>
+                              {it.kind === 'watchdog_internal' ? (
+                                <button className="btn" onClick={async ()=>{
+                                  try{
+                                    const params = new URLSearchParams({
+                                      unit: it.unit || 'ALL',
+                                      threshold: String(it.threshold ?? 0.2),
+                                      weeksBack: String(it.weeksBack || 1),
+                                      useInternalShare: String((it.useInternalShare ?? true) !== false),
+                                      useZeroLastWeek: String((it.useZeroLastWeek ?? true) !== false),
+                                      useMinTotal: String((it.useMinTotal ?? false) === true),
+                                      minTotalHours: String(it.minTotalHours || 0),
+                                      combine: it.combine === 'and' ? 'and' : 'or'
+                                    })
+                                    const url = `/api/watchdogs/internal/preview-page?${params.toString()}`
+                                    window.open(url, '_blank', 'noreferrer')
+                                  }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
+                                }}>Watchdog ansehen</button>
+                              ) : (
+                                <button className="btn" onClick={async ()=>{
+                                  try{
+                                    const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
+                                    const url = `/api/reports/preview-page?${params.toString()}`
+                                    window.open(url, '_blank', 'noreferrer')
+                                  }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
+                                }}>Vorschau</button>
+                              )}
                               <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
                               <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
                               <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>

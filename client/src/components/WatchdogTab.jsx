@@ -101,8 +101,13 @@ export default function WatchdogTab(){
   }, [data, offendersOnly, query, sortBy, sortDir])
 
   function exportCsv(){
-    const lines = ['week;mitarbeiter;internal;total;pct']
-    for (const r of rows) lines.push([r.week, String(r.mitarbeiter||'').replaceAll(';',','), r.internal, r.total, ((r.pct||0)*100).toFixed(1)].join(';'))
+    const lines = ['week;mitarbeiter;internal;total;pct;reasons']
+    for (const r of rows) {
+      const intReason = (r.reasons||[]).find(x=>x.type==='internal_share')
+      const weeksTxt = intReason && Array.isArray(intReason.weeks) ? ` (${intReason.weeks.join(',')})` : ''
+      const reasons = Array.isArray(r.reasons) ? r.reasons.map(x=> x.type==='internal_share' ? `internal_share${weeksTxt}` : x.type).join('|') : ''
+      lines.push([r.week, String(r.mitarbeiter||'').replaceAll(';',','), r.internal, r.total, ((r.pct||0)*100).toFixed(1), reasons.replaceAll(';',',')].join(';'))
+    }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
