@@ -43,6 +43,9 @@ export default function WatchdogTab(){
       }catch(e){ if(!cancelled) setError(e?.response?.data?.message || e.message) }
       finally{ if(!cancelled) setLoading(false) }
     }
+    load()
+    return () => { cancelled = true }
+  }, [unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine])
 
   function buildPreviewUrl(){
     const params = new URLSearchParams({
@@ -86,9 +89,7 @@ export default function WatchdogTab(){
       setThreshold(0.35); setWeeksBack(1); setUseInternalShare(true); setUseZeroLastWeek(false); setUseMinTotal(false); setMinTotalHours(0); setCombine('and')
     }
   }
-    load()
-    return () => { cancelled = true }
-  }, [unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine])
+  
 
   // persist settings
   useEffect(() => { localStorage.setItem('wd_unit', unit) }, [unit])
