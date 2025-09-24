@@ -139,7 +139,7 @@ async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis 
 }
 
 // ---------------- Internal time watchdog ----------------
-async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1 }){
+async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or' }){
   // build range for last calendar week; allow weeksBack>1 by expanding range
   const now = new Date()
   // end at last week's Sunday 23:59:59
@@ -149,24 +149,79 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6)) // go back weeksBack weeks to Monday
   const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
   const rows = await computeWeeklyInternalShares({ unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
-  const offenders = rows.filter(r => r.pct > Number(threshold || 0.2))
+  // Index data for additional rules
+  const byWeek = new Map()
+  const byEmpTotals = new Map()
+  const byEmpWeek = new Map()
+  for (const r of rows) {
+    if (!byWeek.has(r.week)) byWeek.set(r.week, [])
+    byWeek.get(r.week).push(r)
+    const ekey = r.mitarbeiter
+    byEmpTotals.set(ekey, (byEmpTotals.get(ekey)||0) + Number(r.total||0))
+    const wk = `${ekey}||${r.week}`
+    byEmpWeek.set(wk, r)
+  }
+  // Determine last week id from range end
+  const endDate = new Date(range.datum_bis)
+  const lastWeekId = isoWeekId(endDate)
+
+  // Build per-employee evaluation
+  const empSet = new Set(rows.map(r=>r.mitarbeiter))
+  const evalRows = []
+  for (const e of empSet) {
+    const reasons = []
+    // internal share rule (any week in range exceeding threshold)
+    if (useInternalShare) {
+      const exceeded = rows.filter(r => r.mitarbeiter===e && r.pct > Number(threshold||0.2))
+      if (exceeded.length>0) reasons.push({ type:'internal_share', weeks: exceeded.map(x=>x.week), value: Math.max(...exceeded.map(x=>x.pct||0)) })
+    }
+    // zero last week rule
+    if (useZeroLastWeek) {
+      const rw = byEmpWeek.get(`${e}||${lastWeekId}`)
+      const total = Number(rw?.total||0)
+      if (!rw || total <= 0) reasons.push({ type:'zero_last_week', week: lastWeekId, value: 0 })
+    }
+    // min total hours across range
+    if (useMinTotal && Number(minTotalHours||0) > 0) {
+      const sum = Number(byEmpTotals.get(e)||0)
+      if (sum < Number(minTotalHours)) reasons.push({ type:'min_total', value: sum, min: Number(minTotalHours) })
+    }
+    // Combine logic
+    const triggered = reasons.length > 0 && (combine==='or' ? true : (
+      (useInternalShare?1:0) + (useZeroLastWeek?1:0) + (useMinTotal?1:0) === reasons.length
+    ))
+    if (triggered) {
+      // choose a representative row: prefer lastWeek if present, else highest internal pct
+      const base = byEmpWeek.get(`${e}||${lastWeekId}`) || rows.filter(r=>r.mitarbeiter===e).sort((a,b)=> (b.pct||0)-(a.pct||0))[0] || { week:lastWeekId, mitarbeiter:e, total:0, internal:0, pct:0 }
+      evalRows.push({ ...base, reasons })
+    }
+  }
+  const offenders = evalRows
   // Prepare email
   const pctFmt = (p)=> `${(p*100).toFixed(1)}%`
   const hoursFmt = (n)=> new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
-  let html = `<p>Watchdog: Interner Anteil > ${pctFmt(threshold||0.2)} in den letzten ${weeksBack} Woche(n), Unit ${unit||'ALL'}.</p>`
+  let html = `<p>Watchdog (Unit ${unit||'ALL'}): letzte ${weeksBack} Woche(n)</p>`
+  html += `<ul>`
+  if (useInternalShare) html += `<li>Interner Anteil > ${pctFmt(threshold||0.2)}</li>`
+  if (useZeroLastWeek) html += `<li>Keine Zeiten letzte Woche (${lastWeekId})</li>`
+  if (useMinTotal) html += `<li>Summe Stunden < ${hoursFmt(minTotalHours||0)}</li>`
+  html += `<li>Kombination: ${combine==='and'?'UND':'ODER'}</li>`
+  html += `</ul>`
   if (offenders.length === 0) {
     html += '<p><strong>Keine Verstöße gefunden.</strong></p>'
   } else {
     html += `<p><strong>${offenders.length}</strong> Einträge:</p>`
-    html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Woche</th><th>Mitarbeiter</th><th>Intern (h)</th><th>Gesamt (h)</th><th>Quote intern</th></tr></thead><tbody>'
+    html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Woche</th><th>Mitarbeiter</th><th>Intern (h)</th><th>Gesamt (h)</th><th>Quote intern</th><th>Gründe</th></tr></thead><tbody>'
     for (const r of offenders) {
-      html += `<tr><td>${r.week}</td><td>${r.mitarbeiter}</td><td style="text-align:right">${hoursFmt(r.internal)}</td><td style="text-align:right">${hoursFmt(r.total)}</td><td style="text-align:right">${pctFmt(r.pct)}</td></tr>`
+      const reasonsTxt = (r.reasons||[]).map(x=> x.type==='internal_share' ? `Interner Anteil > ${pctFmt(threshold||0.2)} (${(x.weeks||[]).join(',')})` : (x.type==='zero_last_week' ? `Keine Zeiten (${x.week})` : `Summe < ${hoursFmt(minTotalHours)}`)).join(', ')
+      html += `<tr><td>${r.week}</td><td>${r.mitarbeiter}</td><td style="text-align:right">${hoursFmt(r.internal)}</td><td style="text-align:right">${hoursFmt(r.total)}</td><td style="text-align:right">${pctFmt(r.pct)}</td><td>${reasonsTxt}</td></tr>`
     }
     html += '</tbody></table>'
   }
-  const csvLines = ['week;mitarbeiter;internal;total;pct'].concat(offenders.map(r => [r.week, r.mitarbeiter.replaceAll(';',','), r.internal, r.total, (r.pct*100).toFixed(1)].join(';')))
+  const csvLines = ['week;mitarbeiter;internal;total;pct;reasons']
+    .concat(offenders.map(r => [r.week, r.mitarbeiter.replaceAll(';',','), r.internal, r.total, (r.pct*100).toFixed(1), (r.reasons||[]).map(x=>x.type).join('|')].join(';')))
   const attachments = [{ filename: 'watchdog_internal.csv', content: Buffer.from(csvLines.join('\n'), 'utf8') }]
-  const subject = `Watchdog Intern > ${(Number(threshold||0.2)*100).toFixed(0)}% · ${unit||'ALL'} · ${range.datum_von.slice(0,10)}–${range.datum_bis.slice(0,10)}`
+  const subject = `Watchdog · ${unit||'ALL'} · ${range.datum_von.slice(0,10)}–${range.datum_bis.slice(0,10)}`
   if ((Array.isArray(recipients) ? recipients : [recipients]).filter(Boolean).length > 0) {
     await sendSmtpMail({ to: recipients, subject, html, text: html.replace(/<[^>]+>/g,' '), attachments })
   }
@@ -179,7 +234,12 @@ app.get('/api/watchdogs/internal/report', async (req, res) => {
     const unit = req.query.unit || 'ALL'
     const threshold = Number(req.query.threshold || 0.2)
     const weeksBack = Math.max(1, Math.min(12, Number(req.query.weeksBack || 1)))
-    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack })
+    const useInternalShare = String(req.query.useInternalShare ?? 'true') !== 'false'
+    const useZeroLastWeek = String(req.query.useZeroLastWeek ?? 'true') !== 'false'
+    const useMinTotal = String(req.query.useMinTotal ?? 'false') === 'true'
+    const minTotalHours = Number(req.query.minTotalHours || 0)
+    const combine = (req.query.combine === 'and') ? 'and' : 'or'
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
     res.json({ ok: true, ...result })
   } catch (e) {
     const status = e.response?.status || 500;
@@ -190,10 +250,10 @@ app.get('/api/watchdogs/internal/report', async (req, res) => {
 // POST: run watchdog and send email
 app.post('/api/watchdogs/internal/run', async (req, res) => {
   try {
-    const { unit = 'ALL', to, threshold = 0.2, weeksBack = 1 } = req.body || {}
+    const { unit = 'ALL', to, threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or' } = req.body || {}
     const recipients = Array.isArray(to) ? to : (to ? [to] : [])
     if (recipients.length === 0) return res.status(400).json({ error: true, message: 'to required' })
-    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack })
+    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
     res.json({ ok: true, ...result })
   } catch (e) {
     const status = e.response?.status || 500;
