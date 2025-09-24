@@ -24,6 +24,8 @@ export default function WatchdogTab(){
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
+  const [showPreview, setShowPreview] = useState(false)
+  const [diag, setDiag] = useState({ checked:false, count:0, internalDetected:0 })
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -41,6 +43,29 @@ export default function WatchdogTab(){
       }catch(e){ if(!cancelled) setError(e?.response?.data?.message || e.message) }
       finally{ if(!cancelled) setLoading(false) }
     }
+
+  function buildPreviewUrl(){
+    const params = new URLSearchParams({
+      unit,
+      threshold: String(threshold),
+      weeksBack: String(weeksBack),
+      useInternalShare: String(useInternalShare),
+      useZeroLastWeek: String(useZeroLastWeek),
+      useMinTotal: String(useMinTotal),
+      minTotalHours: String(minTotalHours),
+      combine
+    })
+    return `/api/watchdogs/internal/preview-page?${params.toString()}`
+  }
+
+  async function checkData(){
+    try{
+      const params = new URLSearchParams({ unit, weeksBack: String(weeksBack) })
+      const r = await fetch(`/api/watchdogs/internal/debug?${params.toString()}`)
+      const j = await r.json()
+      setDiag({ checked:true, count: Number(j?.count||0), internalDetected: Number(j?.internalDetected||0) })
+    }catch(_){ setDiag({ checked:true, count:0, internalDetected:0 }) }
+  }
 
   // KPIs
   const kpi = useMemo(() => {
@@ -161,7 +186,13 @@ export default function WatchdogTab(){
           <div style={{ width:8 }} />
           <button className="btn" title="Preset: Streng" onClick={()=>setPreset('strict')}>Preset: Streng</button>
           <button className="btn" title="Preset: Locker" onClick={()=>setPreset('lenient')}>Preset: Locker</button>
+          <div style={{ width:8 }} />
+          <button className="btn" onClick={()=>setShowPreview(true)}>Vorschau anzeigen</button>
+          <button className="btn" onClick={checkData}>Daten prüfen</button>
         </div>
+        {diag.checked && (
+          <div style={{ marginBottom:8, color:'var(--muted)' }}>Diagnose: Datensätze {diag.count} · als INTERN erkannt {diag.internalDetected}{diag.internalDetected===0? ' — Hinweis: Passen evtl. Projektbezeichnungen nicht?': ''}</div>
+        )}
         {loading && <div>Lade…</div>}
         {!!error && <div style={{ color:'crimson' }}>Fehler: {String(error)}</div>}
         <div style={{ color:'var(--muted)', marginBottom:6 }}>Zeitraum: {(data?.range?.datum_von||'').slice(0,10)} – {(data?.range?.datum_bis||'').slice(0,10)}</div>
@@ -183,9 +214,9 @@ export default function WatchdogTab(){
               <tr>
                 <th style={{cursor:'pointer'}} onClick={()=>{ setSortBy('week'); setSortDir(sortBy==='week' && sortDir==='asc' ? 'desc' : 'asc') }}>Woche</th>
                 <th style={{cursor:'pointer'}} onClick={()=>{ setSortBy('mitarbeiter'); setSortDir(sortBy==='mitarbeiter' && sortDir==='asc' ? 'desc' : 'asc') }}>Mitarbeiter</th>
-                <th className="right" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('internal'); setSortDir(sortBy==='internal' && sortDir==='asc' ? 'desc' : 'asc') }}>Intern (h)</th>
-                <th className="right" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('total'); setSortDir(sortBy==='total' && sortDir==='asc' ? 'desc' : 'asc') }}>Gesamt (h)</th>
-                <th className="right" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('pct'); setSortDir(sortBy==='pct' && sortDir==='asc' ? 'desc' : 'asc') }}>Anteil Intern</th>
+                <th className="right" title="Summe interner Projekte je Mitarbeiter/Woche" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('internal'); setSortDir(sortBy==='internal' && sortDir==='asc' ? 'desc' : 'asc') }}>Intern (h)</th>
+                <th className="right" title="Summe aller Stunden je Mitarbeiter/Woche über alle Projekte" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('total'); setSortDir(sortBy==='total' && sortDir==='asc' ? 'desc' : 'asc') }}>Gesamt (h) – alle Projekte</th>
+                <th className="right" title="Anteil intern = Intern/Gesamt" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('pct'); setSortDir(sortBy==='pct' && sortDir==='asc' ? 'desc' : 'asc') }}>Anteil Intern</th>
                 <th>Gründe</th>
               </tr>
             </thead>
@@ -220,10 +251,10 @@ export default function WatchdogTab(){
               const weeksTxt = intReason && Array.isArray(intReason.weeks) ? ` (${intReason.weeks.join(',')})` : ''
               return (
                 <div className="card" key={idx}>
-                  <div className="row"><div className="badge">{r.week}</div><div className={`badge ${badgeCls}`}>{((r.pct||0)*100).toFixed(1)}%</div></div>
+                  <div className="row"><div className="badge">{r.week}</div><div className={`badge ${badgeCls}`} title="Anteil intern = Intern/Gesamt">{((r.pct||0)*100).toFixed(1)}%</div></div>
                   <div className="row"><strong>{r.mitarbeiter}</strong></div>
-                  <div className="row"><span>Intern</span><span>{fmt(r.internal)} h</span></div>
-                  <div className="row"><span>Gesamt</span><span>{fmt(r.total)} h</span></div>
+                  <div className="row"><span title="Summe interner Projekte je Mitarbeiter/Woche">Intern</span><span>{fmt(r.internal)} h</span></div>
+                  <div className="row"><span title="Summe aller Stunden über alle Projekte">Gesamt (alle Projekte)</span><span>{fmt(r.total)} h</span></div>
                   <div className="row"><span>Gründe</span><span>{Array.isArray(r.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share${weeksTxt}` : x.type).join(', ') : ''}</span></div>
                 </div>
               )
@@ -231,6 +262,17 @@ export default function WatchdogTab(){
           </div>
         </div>
       </div>
+      {showPreview && (
+        <div className="modal-overlay" onClick={()=>setShowPreview(false)}>
+          <div className="modal" onClick={(e)=>e.stopPropagation()}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+              <strong>Watchdog Vorschau</strong>
+              <button className="btn" onClick={()=>setShowPreview(false)}>Schließen</button>
+            </div>
+            <iframe title="Watchdog Preview" src={buildPreviewUrl()} style={{ width:'100%', height:'70vh', border:'0', borderRadius:8, background:'#fff' }} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
