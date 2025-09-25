@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { getInternalMapping, saveInternalMapping } from '../lib/mapping'
+import { getInternalMappingServer, updateInternalMappingServer } from '../lib/api'
 
 export default function InternalMappingDialog({ onClose }){
   const [projects, setProjects] = useState([])
   const [tokens, setTokens] = useState([])
   const [msg, setMsg] = useState('')
+  const [srvMsg, setSrvMsg] = useState('')
 
   useEffect(()=>{
     const m = getInternalMapping()
@@ -33,6 +35,57 @@ export default function InternalMappingDialog({ onClose }){
 
   function reset(){ setProjects([]); setTokens([]); setMsg('Zurückgesetzt (nicht gespeichert)') }
 
+  async function loadFromServer(){
+    setSrvMsg('Lade vom Server…')
+    try{
+      const m = await getInternalMappingServer()
+      setProjects(Array.isArray(m.projects)? m.projects : [])
+      setTokens(Array.isArray(m.tokens)? m.tokens : [])
+      setSrvMsg('Vom Server geladen')
+    }catch(e){ setSrvMsg('Fehler: '+(e?.response?.data?.message || e.message)) }
+  }
+
+  async function saveToServer(){
+    setSrvMsg('Speichere zum Server…')
+    try{
+      const cleaned = {
+        projects: projects.map(s=> String(s||'').trim()).filter(Boolean),
+        tokens: tokens.map(s=> String(s||'').trim()).filter(Boolean),
+      }
+      await updateInternalMappingServer(cleaned)
+      setSrvMsg('Auf Server gespeichert')
+    }catch(e){ setSrvMsg('Fehler: '+(e?.response?.data?.message || e.message)) }
+  }
+
+  function exportJson(){
+    const cleaned = {
+      projects: projects.map(s=> String(s||'').trim()).filter(Boolean),
+      tokens: tokens.map(s=> String(s||'').trim()).filter(Boolean),
+    }
+    const blob = new Blob([JSON.stringify(cleaned, null, 2)], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'internal_mapping.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  function importJson(){
+    const inp = document.createElement('input')
+    inp.type = 'file'
+    inp.accept = 'application/json'
+    inp.onchange = async (e)=>{
+      const f = e.target.files && e.target.files[0]
+      if (!f) return
+      try{
+        const txt = await f.text()
+        const j = JSON.parse(txt)
+        setProjects(Array.isArray(j?.projects)? j.projects : [])
+        setTokens(Array.isArray(j?.tokens)? j.tokens : [])
+        setMsg('Importiert (lokal, noch nicht gespeichert)')
+      }catch(err){ setMsg('Fehler beim Import: '+(err?.message||err)) }
+    }
+    inp.click()
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e)=>e.stopPropagation()} style={{ maxWidth: 720 }}>
@@ -48,6 +101,14 @@ export default function InternalMappingDialog({ onClose }){
               <li><strong>Projektcodes</strong>: exakte Codes, z. B. "INT", "ADMIN", "RCCINT"</li>
               <li><strong>Kürzel/Token</strong>: Teilstrings, die in Code oder Name vorkommen, z. B. "intern", "admin"</li>
             </ul>
+          </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8, flexWrap:'wrap' }}>
+            <button className="btn" onClick={loadFromServer}>Vom Server laden</button>
+            <button className="btn" onClick={saveToServer}>Auf Server speichern</button>
+            {srvMsg && <span style={{ color:'var(--muted)' }}>{srvMsg}</span>}
+            <div style={{ flex:1 }} />
+            <button className="btn" onClick={exportJson}>Export</button>
+            <button className="btn" onClick={importJson}>Import</button>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
             <div>

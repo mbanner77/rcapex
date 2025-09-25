@@ -36,6 +36,25 @@ const APEX_USERNAME = (process.env.APEX_USERNAME || '').trim();
 const APEX_PASSWORD = (process.env.APEX_PASSWORD || '').trim();
 // In-memory overrides editable via API (will be persisted to disk best-effort)
 const APEX_OVERRIDES = { username: '', password: '' };
+// Persisted mapping for internal projects (server-wide)
+let PERSISTED_MAPPING = { projects: [], tokens: [] }
+function detectInternalDetail(row, mapping){
+  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
+  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
+  const hay = `${code} ${name}`
+  const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
+  if (la.startsWith('N')) return { matched: true, by: 'leistungsart', value: la.charAt(0) || 'N' }
+  const m = normalizeMapping(mapping)
+  if (m.projects.length && m.projects.includes(code)) return { matched: true, by: 'code', value: code }
+  if (m.tokens.length){
+    const tok = m.tokens.find(t => hay.includes(t))
+    if (tok) return { matched: true, by: 'token', value: tok }
+  }
+  if (code.startsWith('INT') || name.startsWith('INT')) return { matched: true, by: 'legacy_prefix', value: 'INT' }
+  const tokens = hay.split(/[^A-Z0-9]+/).filter(Boolean)
+  if (tokens.includes('INT')) return { matched: true, by: 'legacy_token', value: 'INT' }
+  return { matched: false }
+}
 // Persist helpers
 async function loadPersistedApex() {
   try {
@@ -48,14 +67,6 @@ async function loadPersistedApex() {
     // read file if exists
     let raw
     try { raw = await fs.readFile(configPath, 'utf8') } catch (_) { return }
-function parseMappingFromReq(req){
-  // Accept arrays or CSV strings, from query or body
-  const src = req.method === 'POST' ? (req.body||{}) : (req.query||{})
-  const rawP = src.mappingProjects
-  const rawT = src.mappingTokens
-  const toArr = (v)=> Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : [])
-  return normalizeMapping({ projects: toArr(rawP), tokens: toArr(rawT) })
-}
     const json = JSON.parse(raw || '{}')
     if (json?.apex) {
       if (typeof json.apex.username === 'string') APEX_OVERRIDES.username = json.apex.username
@@ -70,6 +81,13 @@ function parseMappingFromReq(req){
       if (typeof json.smtp.pass === 'string' && !process.env.SMTP_PASS) SMTP_CONFIG.pass = json.smtp.pass
       if (typeof json.smtp.defaultRecipient === 'string' && !process.env.SMTP_DEFAULT_RECIPIENT) SMTP_CONFIG.defaultRecipient = json.smtp.defaultRecipient
       if (typeof json.smtp.from === 'string' && !process.env.SMTP_FROM) SMTP_CONFIG.from = json.smtp.from
+    }
+    // Load persisted internal mapping (server-wide)
+    if (json?.internalMapping) {
+      const mp = json.internalMapping
+      const projects = Array.isArray(mp?.projects) ? mp.projects : []
+      const tokens = Array.isArray(mp?.tokens) ? mp.tokens : []
+      PERSISTED_MAPPING = normalizeMapping({ projects, tokens })
     }
   } catch (_) { /* ignore */ }
 }
@@ -111,6 +129,8 @@ function normalizeMapping(mapping){
 function isInternalProject(row, mapping){
   const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
   const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
+  const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
+  if (la.startsWith('N')) return true
   // user-defined mapping (exact codes and token substrings)
   const m = normalizeMapping(mapping)
   if (m.projects.length || m.tokens.length){
@@ -167,6 +187,23 @@ app.get('/api/watchdogs/internal/debug-original', async (req, res) => {
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });
+  }
+})
+
+// Persisted server-wide mapping endpoints
+app.get('/api/watchdogs/internal/mapping', async (req, res) => {
+  res.json({ ok: true, mapping: PERSISTED_MAPPING })
+})
+app.post('/api/watchdogs/internal/mapping', async (req, res) => {
+  try{
+    const projects = Array.isArray(req.body?.projects) ? req.body.projects : []
+    const tokens = Array.isArray(req.body?.tokens) ? req.body.tokens : []
+    PERSISTED_MAPPING = normalizeMapping({ projects, tokens })
+    await savePersistedApex()
+    res.json({ ok: true, mapping: PERSISTED_MAPPING })
+  }catch(e){
+    const status = e.response?.status || 500;
+    res.status(status).json({ error:true, status, message: errMessage(e) })
   }
 })
 
@@ -364,6 +401,7 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
         .note{ margin:10px 0; padding:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px }
       </style></head><body>
       <div class="muted">Zeitraum: ${esc((result.range?.datum_von||'').slice(0,10))} – ${esc((result.range?.datum_bis||'').slice(0,10))} · Unit: ${esc(unit)}</div>
+      <div class="note">Mapping aktiv: Codes=[${(mapping.projects||[]).join(', ')}], Tokens=[${(mapping.tokens||[]).join(', ')}]</div>
       <h3>Watchdog Ergebnisse (${rows.length})</h3>
       ${rows.length===0 ? `<div class="note">Keine Einträge für die gewählten Parameter. Bitte Schwellen/Zeitraum prüfen.</div>` : ''}
       <table><thead><tr><th>Woche</th><th>Mitarbeiter</th><th class="right">Intern (h)</th><th class="right">Gesamt (h)</th><th class="right">Anteil Intern</th><th>Gründe</th></tr></thead>
@@ -396,29 +434,52 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
     const mapping = parseMappingFromReq(req)
     // Stats
     let internalCnt = 0
+    const byCode = new Map()
+    const byToken = new Map()
+    let legacyPrefix = 0
+    let legacyToken = 0
     const weeks = new Set()
     const fields = {}
     const sample = []
     const sampleFull = items.slice(0, limit)
     for (const r of items.slice(0, limit)) {
+      const det = detectInternalDetail(r, mapping)
       sample.push({
         MITARBEITER: r?.MITARBEITER ?? r?.mitarbeiter,
         PROJEKT: r?.PROJEKT ?? r?.projekt ?? r?.projektcode,
         NAME: r?.projektname ?? r?.PROJEKTNAME ?? r?.projekt,
         DATUM: r?.DATUM ?? r?.datum ?? r?.DATE ?? r?.date ?? r?.BUCHUNGSDATUM ?? r?.buchungsdatum,
         STUNDEN: r?.STUNDEN ?? r?.stunden ?? r?.STD_GELEISTET ?? r?.stunden_gel,
-        INT: isInternalProject(r, mapping)
+        INT: det.matched,
+        MATCHED_BY: det.by || '',
+        MATCH_VALUE: det.value || ''
       })
     }
     for (const r of items) {
-      if (isInternalProject(r, mapping)) internalCnt++
+      const det = detectInternalDetail(r, mapping)
+      if (det.matched){
+        internalCnt++
+        if (det.by === 'code') byCode.set(det.value, (byCode.get(det.value)||0)+1)
+        else if (det.by === 'token') byToken.set(det.value, (byToken.get(det.value)||0)+1)
+        else if (det.by === 'legacy_prefix') legacyPrefix++
+        else if (det.by === 'legacy_token') legacyToken++
+      }
       try {
         const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
         if (dstr) weeks.add(isoWeekId(new Date(dstr)))
       } catch {}
       for (const k of Object.keys(r||{})) fields[k] = true
     }
-    res.json({ ok: true, range, count: items.length, internalDetected: internalCnt, weeks: Array.from(weeks), fields: Object.keys(fields), sample, sampleFull })
+    const stats = {
+      matchedTotal: internalCnt,
+      by: {
+        code: Object.fromEntries(Array.from(byCode.entries()).sort((a,b)=>b[1]-a[1])),
+        token: Object.fromEntries(Array.from(byToken.entries()).sort((a,b)=>b[1]-a[1])),
+        legacy_prefix: legacyPrefix,
+        legacy_token: legacyToken,
+      }
+    }
+    res.json({ ok: true, range, count: items.length, internalDetected: internalCnt, weeks: Array.from(weeks), fields: Object.keys(fields), sample, sampleFull, stats, mappingUsed: mapping })
   } catch (e) {
     const status = e.response?.status || 500;
     res.status(status).json({ error: true, status, message: errMessage(e) });
@@ -539,19 +600,18 @@ async function getAggregatedItems({ type, unit, datum_von, datum_bis }){
       const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
       const perHeaders = { ...baseHeaders, unit: u }
       const r = await axios.get(url, { headers: perHeaders })
-      results.push({ unit: u, data: r.data })
+      results.push(r.data)
     }
     for (const r of results) {
-      const arr = Array.isArray(r?.data?.items) ? r.data.items : (Array.isArray(r?.data) ? r.data : [])
-      // annotate with __unit ext_id
-      items.push(...arr.map(x => ({ ...x, __unit: r.unit })))
+      const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])
+      items.push(...arr)
     }
   } else {
     const sp = new URLSearchParams({ datum_von, datum_bis, unit })
     const path = type === 'umsatzliste' ? 'umsatzliste' : 'zeiten/'
     const url = `${APEX_BASE}/${path}${sp.toString() ? `?${sp.toString()}` : ''}`
     const r = await axios.get(url, { headers: { ...baseHeaders, unit } })
-    items = (Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])).map(x => ({ ...x, __unit: unit }))
+    items = Array.isArray(r.data?.items) ? r.data.items : (Array.isArray(r.data) ? r.data : [])
   }
   return items
 }
@@ -577,6 +637,7 @@ async function savePersistedApex() {
       defaultRecipient: SMTP_CONFIG.defaultRecipient || '',
       from: SMTP_CONFIG.from || ''
     }
+    existing.internalMapping = PERSISTED_MAPPING
     await fsn.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf8')
   } catch (_) { /* ignore */ }
 }
