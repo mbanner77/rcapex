@@ -38,6 +38,13 @@ const APEX_PASSWORD = (process.env.APEX_PASSWORD || '').trim();
 const APEX_OVERRIDES = { username: '', password: '' };
 // Persisted mapping for internal projects (server-wide)
 let PERSISTED_MAPPING = { projects: [], tokens: [] }
+
+function extractMeta(row){
+  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
+  const kunde = String(row?.KUNDE || row?.kunde || '').toString()
+  const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
+  return { code, kunde, leistungsart: la }
+}
 function detectInternalDetail(row, mapping){
   const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
   const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
@@ -229,6 +236,7 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
   const weekEmp = new Map()
   const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }
   for (const r of itemsAll) {
+    const meta = extractMeta(r)
     // find a date for this entry – prefer DATUM fields
     const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
     let d = undefined
@@ -241,17 +249,29 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
     if (!val) continue
     if (!weekEmp.has(wid)) weekEmp.set(wid, new Map())
     const em = weekEmp.get(wid)
-    if (!em.has(emp)) em.set(emp, { total: 0, internal: 0 })
+    if (!em.has(emp)) em.set(emp, { total: 0, internal: 0, kunde: '', leistungsart: '', projektcode: '' })
     const obj = em.get(emp)
     obj.total += val
-    if (isInternalProject(r, mapping)) obj.internal += val
+    const isInt = isInternalProject(r, mapping)
+    if (isInt) {
+      obj.internal += val
+      // Prefer internal meta when available
+      obj.kunde = meta.kunde || obj.kunde
+      obj.leistungsart = meta.leistungsart || obj.leistungsart
+      obj.projektcode = meta.code || obj.projektcode
+    } else {
+      // Set defaults if not set yet
+      if (!obj.kunde && meta.kunde) obj.kunde = meta.kunde
+      if (!obj.leistungsart && meta.leistungsart) obj.leistungsart = meta.leistungsart
+      if (!obj.projektcode && meta.code) obj.projektcode = meta.code
+    }
   }
   // Flatten rows
   const rows = []
   for (const [wid, em] of weekEmp) {
     for (const [emp, { total, internal }] of em) {
       const pct = total > 0 ? (internal / total) : 0
-      rows.push({ week: wid, mitarbeiter: emp, total, internal, pct })
+      rows.push({ week: wid, mitarbeiter: emp, total, internal, pct, kunde: (em.get(emp)?.kunde||''), leistungsart: (em.get(emp)?.leistungsart||''), projektcode: (em.get(emp)?.projektcode||'') })
     }
   }
   // sort by week then pct desc

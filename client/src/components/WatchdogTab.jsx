@@ -146,12 +146,18 @@ export default function WatchdogTab(){
   }, [data, offendersOnly, query, sortBy, sortDir])
 
   function exportCsv(){
-    const lines = ['week;mitarbeiter;internal;total;pct;reasons']
+    const lines = ['week;mitarbeiter;kunde;leistungsart;projektcode;internal;total;pct']
     for (const r of rows) {
-      const intReason = (r.reasons||[]).find(x=>x.type==='internal_share')
-      const weeksTxt = intReason && Array.isArray(intReason.weeks) ? ` (${intReason.weeks.join(',')})` : ''
-      const reasons = Array.isArray(r.reasons) ? r.reasons.map(x=> x.type==='internal_share' ? `internal_share${weeksTxt}` : x.type).join('|') : ''
-      lines.push([r.week, String(r.mitarbeiter||'').replaceAll(';',','), r.internal, r.total, ((r.pct||0)*100).toFixed(1), reasons.replaceAll(';',',')].join(';'))
+      lines.push([
+        r.week,
+        String(r.mitarbeiter||'').replaceAll(';',','),
+        String(r.kunde||'').replaceAll(';',','),
+        String(r.leistungsart||'').replaceAll(';',','),
+        String(r.projektcode||'').replaceAll(';',','),
+        r.internal,
+        r.total,
+        ((r.pct||0)*100).toFixed(1)
+      ].join(';'))
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -261,15 +267,17 @@ export default function WatchdogTab(){
           </div>
         )}
         <div className="hide-sm" style={{ overflowX:'auto' }}>
-          <table className="table" style={{ minWidth: 860 }}>
+          <table className="table" style={{ minWidth: 1100 }}>
             <thead>
               <tr>
                 <th style={{cursor:'pointer'}} onClick={()=>{ setSortBy('week'); setSortDir(sortBy==='week' && sortDir==='asc' ? 'desc' : 'asc') }}>Woche</th>
                 <th style={{cursor:'pointer'}} onClick={()=>{ setSortBy('mitarbeiter'); setSortDir(sortBy==='mitarbeiter' && sortDir==='asc' ? 'desc' : 'asc') }}>Mitarbeiter</th>
+                <th>Kunde</th>
+                <th>Leistungsart</th>
+                <th>Projektcode</th>
                 <th className="right" title="Summe interner Projekte je Mitarbeiter/Woche" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('internal'); setSortDir(sortBy==='internal' && sortDir==='asc' ? 'desc' : 'asc') }}>Intern (h)</th>
                 <th className="right" title="Summe aller Stunden je Mitarbeiter/Woche über alle Projekte" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('total'); setSortDir(sortBy==='total' && sortDir==='asc' ? 'desc' : 'asc') }}>Gesamt (h) – alle Projekte</th>
                 <th className="right" title="Anteil intern = Intern/Gesamt" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('pct'); setSortDir(sortBy==='pct' && sortDir==='asc' ? 'desc' : 'asc') }}>Anteil Intern</th>
-                <th>Gründe</th>
               </tr>
             </thead>
             <tbody>
@@ -277,16 +285,16 @@ export default function WatchdogTab(){
                 const hasZero = Array.isArray(r.reasons) && r.reasons.some(x=>x.type==='zero_last_week')
                 const hasInt = Array.isArray(r.reasons) && r.reasons.some(x=>x.type==='internal_share')
                 const cls = hasInt ? 'row-bad' : (hasZero ? 'row-warn' : '')
-                const intReason = (r.reasons||[]).find(x=>x.type==='internal_share')
-                const weeksTxt = intReason && Array.isArray(intReason.weeks) ? ` (${intReason.weeks.join(',')})` : ''
                 return (
                   <tr key={idx} className={cls}>
                   <td>{r.week}</td>
                   <td>{r.mitarbeiter}</td>
+                  <td>{r.kunde || ''}</td>
+                  <td>{r.leistungsart || ''}</td>
+                  <td>{r.projektcode || ''}</td>
                   <td className="right">{fmt(r.internal)}</td>
                   <td className="right">{fmt(r.total)}</td>
                   <td className="right">{((r.pct||0)*100).toFixed(1)}%</td>
-                  <td>{Array.isArray(r.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share${weeksTxt}` : x.type).join(', ') : ''}</td>
                 </tr>
                 )
               })}
@@ -299,15 +307,15 @@ export default function WatchdogTab(){
               const hasZero = Array.isArray(r.reasons) && r.reasons.some(x=>x.type==='zero_last_week')
               const hasInt = Array.isArray(r.reasons) && r.reasons.some(x=>x.type==='internal_share')
               const badgeCls = hasInt ? 'badge-bad' : (hasZero ? 'badge-warn' : 'badge')
-              const intReason = (r.reasons||[]).find(x=>x.type==='internal_share')
-              const weeksTxt = intReason && Array.isArray(intReason.weeks) ? ` (${intReason.weeks.join(',')})` : ''
               return (
                 <div className="card" key={idx}>
                   <div className="row"><div className="badge">{r.week}</div><div className={`badge ${badgeCls}`} title="Anteil intern = Intern/Gesamt">{((r.pct||0)*100).toFixed(1)}%</div></div>
                   <div className="row"><strong>{r.mitarbeiter}</strong></div>
+                  <div className="row"><span>Kunde</span><span>{r.kunde||''}</span></div>
+                  <div className="row"><span>Leistungsart</span><span>{r.leistungsart||''}</span></div>
+                  <div className="row"><span>Projektcode</span><span>{r.projektcode||''}</span></div>
                   <div className="row"><span title="Summe interner Projekte je Mitarbeiter/Woche">Intern</span><span>{fmt(r.internal)} h</span></div>
                   <div className="row"><span title="Summe aller Stunden über alle Projekte">Gesamt (alle Projekte)</span><span>{fmt(r.total)} h</span></div>
-                  <div className="row"><span>Gründe</span><span>{Array.isArray(r.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share${weeksTxt}` : x.type).join(', ') : ''}</span></div>
                 </div>
               )
             })}
