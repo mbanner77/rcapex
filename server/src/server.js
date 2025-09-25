@@ -48,6 +48,14 @@ async function loadPersistedApex() {
     // read file if exists
     let raw
     try { raw = await fs.readFile(configPath, 'utf8') } catch (_) { return }
+function parseMappingFromReq(req){
+  // Accept arrays or CSV strings, from query or body
+  const src = req.method === 'POST' ? (req.body||{}) : (req.query||{})
+  const rawP = src.mappingProjects
+  const rawT = src.mappingTokens
+  const toArr = (v)=> Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : [])
+  return normalizeMapping({ projects: toArr(rawP), tokens: toArr(rawT) })
+}
     const json = JSON.parse(raw || '{}')
     if (json?.apex) {
       if (typeof json.apex.username === 'string') APEX_OVERRIDES.username = json.apex.username
@@ -95,18 +103,29 @@ function isoWeekId(d){
   const w = String(week).padStart(2, '0')
   return `${year}-W${w}`
 }
-function isInternalProject(row){
+function normalizeMapping(mapping){
+  const projects = Array.isArray(mapping?.projects) ? mapping.projects.map(s=>String(s||'').trim().toUpperCase()).filter(Boolean) : []
+  const tokens = Array.isArray(mapping?.tokens) ? mapping.tokens.map(s=>String(s||'').trim().toUpperCase()).filter(Boolean) : []
+  return { projects, tokens }
+}
+function isInternalProject(row, mapping){
   const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
   const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
-  // accept clear prefixes
+  // user-defined mapping (exact codes and token substrings)
+  const m = normalizeMapping(mapping)
+  if (m.projects.length || m.tokens.length){
+    if (m.projects.some(p => p === code)) return true
+    const hay = `${code} ${name}`
+    if (m.tokens.some(t => hay.includes(t))) return true
+  }
+  // legacy heuristic fallback: INT prefix or token
   if (code.startsWith('INT') || name.startsWith('INT')) return true
-  // tokenize on non-alnum and check token equals 'INT'
   const tokens = (code + ' ' + name).split(/[^A-Z0-9]+/).filter(Boolean)
   return tokens.includes('INT')
 }
 
 // Compute weekly internal share per employee for a given date range (inclusive)
-async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis }){
+async function computeWeeklyInternalShares({ unit = 'ALL', datum_von, datum_bis, mapping = {} }){
   const type = 'zeiten'
   // Always compute totals from ALL units
   const itemsAll = await getAggregatedItems({ type, unit: 'ALL', datum_von, datum_bis })
@@ -177,7 +196,7 @@ app.get('/api/watchdogs/internal/debug-original', async (req, res) => {
     if (!em.has(emp)) em.set(emp, { total: 0, internal: 0 })
     const obj = em.get(emp)
     obj.total += val
-    if (isInternalProject(r)) obj.internal += val
+    if (isInternalProject(r, mapping)) obj.internal += val
   }
   // Flatten rows
   const rows = []
@@ -193,7 +212,7 @@ app.get('/api/watchdogs/internal/debug-original', async (req, res) => {
 }
 
 // ---------------- Internal time watchdog ----------------
-async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or' }){
+async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or', mapping = {} }){
   // build range for last calendar week; allow weeksBack>1 by expanding range
   const now = new Date()
   // end at last week's Sunday 23:59:59
@@ -202,7 +221,7 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6)) // go back weeksBack weeks to Monday
   const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
-  const rows = await computeWeeklyInternalShares({ unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+  const rows = await computeWeeklyInternalShares({ unit, datum_von: range.datum_von, datum_bis: range.datum_bis, mapping })
   // Index data for additional rules
   const byWeek = new Map()
   const byEmpTotals = new Map()
@@ -293,7 +312,8 @@ app.get('/api/watchdogs/internal/report', async (req, res) => {
     const useMinTotal = String(req.query.useMinTotal ?? 'false') === 'true'
     const minTotalHours = Number(req.query.minTotalHours || 0)
     const combine = (req.query.combine === 'and') ? 'and' : 'or'
-    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
+    const mapping = parseMappingFromReq(req)
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping })
     res.json({ ok: true, ...result })
   } catch (e) {
     const status = e.response?.status || 500;
@@ -307,7 +327,8 @@ app.post('/api/watchdogs/internal/run', async (req, res) => {
     const { unit = 'ALL', to, threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or' } = req.body || {}
     const recipients = Array.isArray(to) ? to : (to ? [to] : [])
     if (recipients.length === 0) return res.status(400).json({ error: true, message: 'to required' })
-    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
+    const mapping = parseMappingFromReq(req)
+    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping })
     res.json({ ok: true, ...result })
   } catch (e) {
     const status = e.response?.status || 500;
@@ -327,7 +348,8 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
     const useMinTotal = String(req.query.useMinTotal ?? 'false') === 'true'
     const minTotalHours = Number(req.query.minTotalHours || 0)
     const combine = (req.query.combine === 'and') ? 'and' : 'or'
-    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine })
+    const mapping = parseMappingFromReq(req)
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping })
     const rows = Array.isArray(result?.offenders) ? result.offenders : []
     const reasonsTxt = (r)=> (Array.isArray(r?.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share (${(x.weeks||[]).join(',')})` : x.type).join(', ') : '')
     const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Watchdog Preview</title>
@@ -371,6 +393,7 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
     start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6))
     const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
     const items = await getAggregatedItems({ type: 'zeiten', unit, datum_von: range.datum_von, datum_bis: range.datum_bis })
+    const mapping = parseMappingFromReq(req)
     // Stats
     let internalCnt = 0
     const weeks = new Set()
@@ -384,11 +407,11 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
         NAME: r?.projektname ?? r?.PROJEKTNAME ?? r?.projekt,
         DATUM: r?.DATUM ?? r?.datum ?? r?.DATE ?? r?.date ?? r?.BUCHUNGSDATUM ?? r?.buchungsdatum,
         STUNDEN: r?.STUNDEN ?? r?.stunden ?? r?.STD_GELEISTET ?? r?.stunden_gel,
-        INT: isInternalProject(r)
+        INT: isInternalProject(r, mapping)
       })
     }
     for (const r of items) {
-      if (isInternalProject(r)) internalCnt++
+      if (isInternalProject(r, mapping)) internalCnt++
       try {
         const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
         if (dstr) weeks.add(isoWeekId(new Date(dstr)))
