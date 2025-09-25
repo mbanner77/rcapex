@@ -145,12 +145,12 @@ export default function UmsatzTab({ umsatzRaw, params }) {
 
         <div className="grid">
           <div>
-            <div style={{ height: 420 }}>
+            <div className="chart-lg">
               <Bar data={barData} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' }, title:{ display:true, text:`Top ${topN} Kunden – ${metric}` } }, scales:{ y:{ beginAtZero:true } } }} />
             </div>
           </div>
           <div>
-            <div style={{ height: 420 }}>
+            <div className="chart">
               <Doughnut data={doughnutData} options={{ maintainAspectRatio:false, plugins:{ legend:{ position:'right' }, title:{ display:true, text:'Summen Verhältnis' } } }} />
             </div>
           </div>

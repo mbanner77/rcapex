@@ -158,6 +158,25 @@ body{
 .table.wrap th, .table.wrap td{ white-space: normal; word-break: break-word }
 .table.dense th, .table.dense td{ padding: 6px 8px }
 
+/* Responsive chart containers */
+.chart{ height: clamp(240px, 38vh, 420px) }
+.chart-lg{ height: clamp(260px, 45vh, 560px) }
+.chart-sm{ height: clamp(200px, 30vh, 340px) }
+@media (max-width: 768px){
+  .chart{ height: clamp(220px, 36vh, 400px) }
+  .chart-lg{ height: clamp(240px, 40vh, 520px) }
+  .chart-sm{ height: clamp(180px, 28vh, 300px) }
+}
+@media (max-width: 480px){
+  .chart{ height: clamp(200px, 34vh, 360px) }
+  .chart-lg{ height: clamp(220px, 38vh, 480px) }
+  .chart-sm{ height: clamp(160px, 26vh, 280px) }
+}
+
+/* Helpers */
+.flex-wrap{ flex-wrap: wrap }
+.gap-8{ gap:8px }
+
 /* Print styles */
 @media print{
   body{ background:white; color:#000 }

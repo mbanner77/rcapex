@@ -225,21 +225,21 @@ function InternalVsBilled({ items }) {
             let gi=0, g=0; for (const x of empItems){ const val=parseFloat(x?.stunden_gel)||0; g+=val; if(isInternal(x)) gi+=val } return g>0? `${((gi/g)*100).toFixed(1)}%`:'—' })()}</div></div>
         </div>
 
-        <div style={{ height: 360 }}>
+        <div className="chart-lg">
           <Line data={lineData} options={lineOptions} />
         </div>
       </div>
 
       <div className="panel" style={{ padding: 12 }}>
-        <div style={{ height: 300 }}>
+        <div className="chart">
           <Bar data={customersBar} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Top 15 Kunden' } }, scales:{ y:{ beginAtZero:true } } }} />
         </div>
         <div style={{ height: 12 }} />
-        <div style={{ height: 300 }}>
+        <div className="chart">
           <Bar data={projectsBar} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Top 15 Projekte' } }, scales:{ y:{ beginAtZero:true } } }} />
         </div>
         <div style={{ height: 12 }} />
-        <div style={{ height: 300 }}>
+        <div className="chart-sm">
           <Doughnut data={customerDonut} options={{ plugins:{ legend:{ position:'right' }, title:{ display:true, text:'Kundenverteilung (Top 10 + Andere)' } }, maintainAspectRatio:false }} />
         </div>
       </div>
@@ -319,7 +319,7 @@ function UnderRecorded({ items, expectedPerDay, range, thresholds }) {
   return (
     <div>
       <h4 style={{ margin: '8px 0' }}>Untererfassung (Soll vs. Ist)</h4>
-      <div style={{ height: 320 }}>
+      <div className="chart-lg">
         <Bar data={data} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' }, title:{ display:false } }, scales:{ y:{ beginAtZero:true } } }} />
       </div>
       <div className="table-wrap" style={{ marginTop: 8 }}>
@@ -377,7 +377,7 @@ function UnbilledRanking({ items, thresholds }) {
   return (
     <div>
       <h4 style={{ margin: '12px 0 8px' }}>Unbilled vs. Fakturiert (Top 15 nach Unbilled)</h4>
-      <div style={{ height: 320 }}>
+      <div className="chart-lg">
         <Bar data={data} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' } }, scales:{ y:{ beginAtZero:true } } }} />
       </div>
       <div className="table-wrap" style={{ marginTop: 8 }}>

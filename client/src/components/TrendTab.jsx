@@ -171,7 +171,7 @@ export default function TrendTab({ params }) {
         </div>
         {loading && <div>Loading…</div>}
         {error && <div style={{ color: 'crimson' }}>Fehler: {String(error)}</div>}
-        <div style={{ height: 420 }}>
+        <div className="chart-lg">
           <Line data={data} options={options} />
         </div>
         {/* Table with month-over-month deltas */}

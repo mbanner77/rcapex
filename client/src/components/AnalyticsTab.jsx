@@ -315,7 +315,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           ))}
         </div>
       </div>
-      <div className="panel" style={{ padding: 12, height: 520 }}>
+      <div className="panel" style={{ padding: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
           <label style={{ color: 'var(--muted)', fontSize: 12 }}>Metrik</label>
           <select className="input" value={metric} onChange={(e)=>setMetric(e.target.value)}>
@@ -341,16 +341,24 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
             <input type="checkbox" checked={stacked} onChange={(e)=>setStacked(e.target.checked)} style={{ marginRight: 6 }} /> gestapelt
           </label>
         </div>
-        <Line data={tsLine} options={lineOptions} />
+        <div className="chart-lg">
+          <Line data={tsLine} options={lineOptions} />
+        </div>
         <div style={{ height: 12 }} />
-        <Bar data={employeesBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Top 15 Mitarbeiter' } }, scales: { y: { beginAtZero: true } } }} />
+        <div className="chart">
+          <Bar data={employeesBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Top 15 Mitarbeiter' } }, scales: { y: { beginAtZero: true } } }} />
+        </div>
       </div>
-      <div className="panel" style={{ padding: 12, height: 520 }}>
-        <Bar data={projectsBar} options={barOptions} />
+      <div className="panel" style={{ padding: 12 }}>
+        <div className="chart">
+          <Bar data={projectsBar} options={barOptions} />
+        </div>
         <div style={{ height: 12 }} />
-        <Doughnut data={ratioDoughnut} options={doughnutOptions} />
+        <div className="chart-sm">
+          <Doughnut data={ratioDoughnut} options={doughnutOptions} />
+        </div>
       </div>
-      <div className="panel" style={{ padding: 12, height: 520 }}>
+      <div className="panel" style={{ padding: 12 }}>
         <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
           <strong>Auslastung je Mitarbeiter (gestapelt)</strong>
           <div style={{ flex:1 }} />
@@ -360,7 +368,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
             <option value="stunden_gel">Stunden geleistet</option>
           </select>
         </div>
-        <Bar data={empStacked} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }} />
+        <div className="chart-lg">
+          <Bar data={empStacked} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }} />
+        </div>
       </div>
       <div className="panel" style={{ padding: 12 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
