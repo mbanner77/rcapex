@@ -39,6 +39,38 @@ const APEX_OVERRIDES = { username: '', password: '' };
 // Persisted mapping for internal projects (server-wide)
 let PERSISTED_MAPPING = { projects: [], tokens: [] }
 
+// Ensure there is always a default scheduled watchdog if none exists yet
+function ensureDefaultWatchdogSchedule(){
+  try {
+    const hasWd = SCHEDULES.some(s => s && s.kind === 'watchdog_internal')
+    if (hasWd) return
+    const fallbackDefault = 'm.banner@realcore.de, olaf.glebsattel@realcore.de'
+    const defaultStr = (String(SMTP_CONFIG.defaultRecipient||'').trim()) || fallbackDefault
+    const recipients = defaultStr ? defaultStr.split(',').map(s=>s.trim()).filter(Boolean) : []
+    const s = {
+      id: 'watchdog-default',
+      name: 'Watchdog (Standard)',
+      active: true,
+      kind: 'watchdog_internal',
+      unit: 'ALL',
+      threshold: 0.2,
+      weeksBack: 1,
+      useInternalShare: true,
+      useZeroLastWeek: true,
+      useMinTotal: false,
+      minTotalHours: 0,
+      combine: 'or',
+      frequency: 'weekly',
+      at: '06:00', // UTC
+      weekdays: [1], // Monday
+      dayOfMonth: 1,
+      recipients,
+    }
+    SCHEDULES.push(s)
+    saveSchedules().finally(()=>{})
+  } catch (_) { /* ignore */ }
+}
+
 function extractMeta(row){
   const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
   const kunde = String(row?.KUNDE || row?.kunde || '').toString()
@@ -61,6 +93,14 @@ function detectInternalDetail(row, mapping){
   const tokens = hay.split(/[^A-Z0-9]+/).filter(Boolean)
   if (tokens.includes('INT')) return { matched: true, by: 'legacy_token', value: 'INT' }
   return { matched: false }
+}
+
+// Exclusion: rows where Leistungsart starts with 'J' are ignored by the watchdog
+function isExcludedByLeistungsart(row){
+  try{
+    const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
+    return la.startsWith('J')
+  }catch(_){ return false }
 }
 // Persist helpers
 async function loadPersistedApex() {
@@ -236,6 +276,8 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
   const weekEmp = new Map()
   const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }
   for (const r of itemsAll) {
+    // Skip excluded Leistungsart (starts with 'J')
+    if (isExcludedByLeistungsart(r)) continue
     const meta = extractMeta(r)
     // find a date for this entry – prefer DATUM fields
     const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
@@ -474,6 +516,8 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
     const sample = []
     const sampleFull = items.slice(0, limit)
     for (const r of items.slice(0, limit)) {
+      // Apply same exclusion as the watchdog logic
+      if (isExcludedByLeistungsart(r)) continue
       const det = detectInternalDetail(r, mapping)
       sample.push({
         MITARBEITER: r?.MITARBEITER ?? r?.mitarbeiter,
@@ -487,6 +531,8 @@ app.get('/api/watchdogs/internal/debug', async (req, res) => {
       })
     }
     for (const r of items) {
+      // Apply same exclusion as the watchdog logic
+      if (isExcludedByLeistungsart(r)) continue
       const det = detectInternalDetail(r, mapping)
       if (det.matched){
         internalCnt++
@@ -1052,7 +1098,8 @@ async function generateReportPdf({ type, unit, datum_von, datum_bis }) {
 // Run a schedule once
 async function runSchedule(s) {
   if (s?.kind === 'watchdog_internal') {
-    await runInternalWatchdog(s)
+    // Ensure scheduled watchdog uses the server-persisted internal mapping
+    await runInternalWatchdog({ ...s, mapping: PERSISTED_MAPPING })
     return
   }
   const { rangePreset = 'last_month', unit = 'ALL', report = 'stunden', recipients = [] } = s || {}
@@ -1188,6 +1235,7 @@ app.post('/api/reports/debug', async (req, res) => {
 // kick off load (best-effort); merge with env defaults
 loadPersistedApex();
 loadSchedules();
+ensureDefaultWatchdogSchedule();
 
 const DEFAULT_UNIT = process.env.DEFAULT_UNIT || 'h0zDeGnQIgfY3px';
 const DEFAULT_DATUM_VON = process.env.DEFAULT_DATUM_VON || '2024-10-01T00:00:00Z';
@@ -1200,7 +1248,7 @@ const SMTP_CONFIG = {
   secure: String(process.env.SMTP_SECURE || 'true').toLowerCase() === 'true',
   user: (process.env.SMTP_USER || 'm.banner@futurestore.shop').trim(),
   pass: (process.env.SMTP_PASS || '').trim(), // never expose via GET
-  defaultRecipient: (process.env.SMTP_DEFAULT_RECIPIENT || '').trim(),
+  defaultRecipient: (process.env.SMTP_DEFAULT_RECIPIENT || 'm.banner@realcore.de, olaf.glebsattel@realcore.de').trim(),
   from: (process.env.SMTP_FROM || 'm.banner@futurestore.shop').trim(),
 }
 
@@ -1337,6 +1385,8 @@ app.post('/api/mail/settings', (req, res) => {
   if (typeof pass === 'string' && pass.trim() && !process.env.SMTP_PASS) SMTP_CONFIG.pass = pass
   savePersistedApex().finally(() => {})
   logMail('SMTP settings updated', { host: SMTP_CONFIG.host, port: SMTP_CONFIG.port, secure: SMTP_CONFIG.secure, user: SMTP_CONFIG.user, defaultRecipient: SMTP_CONFIG.defaultRecipient, from: SMTP_CONFIG.from, pass: SMTP_CONFIG.pass ? '***' : '' })
+  // After mail settings update, ensure a default watchdog schedule exists (will use defaultRecipient if present)
+  ensureDefaultWatchdogSchedule()
   res.json({ ok: true })
 })
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { getInternalMapping, saveInternalMapping } from '../lib/mapping'
 import { getInternalMappingServer, updateInternalMappingServer } from '../lib/api'
 
@@ -7,6 +7,8 @@ export default function InternalMappingDialog({ onClose }){
   const [tokens, setTokens] = useState([])
   const [msg, setMsg] = useState('')
   const [srvMsg, setSrvMsg] = useState('')
+  const [test, setTest] = useState({ code:'', name:'', la:'' })
+  const [toolsMsg, setToolsMsg] = useState('')
 
   useEffect(()=>{
     const m = getInternalMapping()
@@ -34,6 +36,47 @@ export default function InternalMappingDialog({ onClose }){
   }
 
   function reset(){ setProjects([]); setTokens([]); setMsg('Zurückgesetzt (nicht gespeichert)') }
+
+  // Tools
+  function normalizeCodesUpper(){ setProjects(arr=> arr.map(s=> String(s||'').trim().toUpperCase())) ; setToolsMsg('Codes uppercased') }
+  function normalizeTokensLower(){ setTokens(arr=> arr.map(s=> String(s||'').trim().toLowerCase())) ; setToolsMsg('Tokens lowercased') }
+  function sortBoth(){ setProjects(arr=> arr.slice().sort((a,b)=> String(a).localeCompare(String(b)))) ; setTokens(arr=> arr.slice().sort((a,b)=> String(a).localeCompare(String(b)))) ; setToolsMsg('Sortiert A→Z') }
+  function dedupeBoth(){ setProjects(arr=> Array.from(new Set(arr.map(s=> String(s||'').trim())).values())) ; setTokens(arr=> Array.from(new Set(arr.map(s=> String(s||'').trim())).values())) ; setToolsMsg('Duplikate entfernt') }
+  function bulkAddProjects(){
+    const txt = prompt('Mehrere Projektcodes (Zeilen/Komma/Leerzeichen getrennt) eingeben:')
+    if (!txt) return
+    const parts = txt.split(/[\s,;]+/).map(s=>s.trim()).filter(Boolean)
+    if (!parts.length) return
+    setProjects(arr=> [...arr, ...parts])
+  }
+  function bulkAddTokens(){
+    const txt = prompt('Mehrere Token (Zeilen/Komma/Leerzeichen getrennt) eingeben:')
+    if (!txt) return
+    const parts = txt.split(/[\s,;]+/).map(s=>s.trim()).filter(Boolean)
+    if (!parts.length) return
+    setTokens(arr=> [...arr, ...parts])
+  }
+
+  const counts = useMemo(()=> ({ codes: (projects||[]).filter(Boolean).length, tokens: (tokens||[]).filter(Boolean).length }), [projects, tokens])
+
+  // Quick test (mirrors server logic: codes exact (case-insensitive), tokens substring on code/name (case-insensitive), Leistungsart starting with 'N' is internal)
+  function quickTest(mapping){
+    const code = String(test.code||'')
+    const name = String(test.name||'')
+    const la = String(test.la||'')
+    if (la.trim().toUpperCase().startsWith('N')) return { matched:true, by:'leistungsart', value:'N' }
+    const mCodes = (mapping.projects||[]).map(s=> String(s||'').trim().toLowerCase())
+    const mTokens = (mapping.tokens||[]).map(s=> String(s||'').trim().toLowerCase())
+    const codeL = code.trim().toLowerCase()
+    const hay = `${code} ${name}`.toLowerCase()
+    if (mCodes.includes(codeL)) return { matched:true, by:'code', value:code }
+    const tok = mTokens.find(t=> hay.includes(t))
+    if (tok) return { matched:true, by:'token', value:tok }
+    // legacy fallback (client-side hint)
+    if (code.trim().toUpperCase().startsWith('INT') || String(name||'').toUpperCase().startsWith('INT')) return { matched:true, by:'legacy', value:'INT' }
+    return { matched:false }
+  }
+  const testRes = useMemo(()=> quickTest({ projects, tokens }), [projects, tokens, test.code, test.name, test.la])
 
   async function loadFromServer(){
     setSrvMsg('Lade vom Server…')
@@ -110,12 +153,26 @@ export default function InternalMappingDialog({ onClose }){
             <button className="btn" onClick={exportJson}>Export</button>
             <button className="btn" onClick={importJson}>Import</button>
           </div>
+          <div className="panel" style={{ padding:10, marginBottom:8 }}>
+            <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+              <strong>Werkzeuge</strong>
+              <button className="btn" onClick={normalizeCodesUpper}>Codes UPPER</button>
+              <button className="btn" onClick={normalizeTokensLower}>Tokens lower</button>
+              <button className="btn" onClick={sortBoth}>Sortieren</button>
+              <button className="btn" onClick={dedupeBoth}>Duplikate entfernen</button>
+              <div style={{ flex:1 }} />
+              <span className="badge">Codes: {counts.codes}</span>
+              <span className="badge">Tokens: {counts.tokens}</span>
+              {toolsMsg && <span style={{ color:'var(--muted)' }}>{toolsMsg}</span>}
+            </div>
+          </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
             <div>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                 <h4 style={{ margin:0 }}>Projektcodes (exakt)</h4>
                 <div style={{ flex:1 }} />
                 <button className="btn" onClick={addProject}>+ Code</button>
+                <button className="btn" onClick={bulkAddProjects}>Bulk…</button>
               </div>
               <div style={{ display:'grid', gap:8 }}>
                 {projects.map((p, idx) => (
@@ -131,6 +188,7 @@ export default function InternalMappingDialog({ onClose }){
                 <h4 style={{ margin:0 }}>Kürzel/Token (enthält)</h4>
                 <div style={{ flex:1 }} />
                 <button className="btn" onClick={addToken}>+ Token</button>
+                <button className="btn" onClick={bulkAddTokens}>Bulk…</button>
               </div>
               <div style={{ display:'grid', gap:8 }}>
                 {tokens.map((t, idx) => (
@@ -146,6 +204,24 @@ export default function InternalMappingDialog({ onClose }){
             <button className="btn" onClick={save}>Speichern</button>
             <button className="btn" onClick={reset}>Zurücksetzen</button>
             {msg && <div style={{ color:'var(--muted)' }}>{msg}</div>}
+          </div>
+          <div className="panel" style={{ padding:10, marginTop:12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+              <strong>Schnelltest</strong>
+              <span className="muted">(Prüft Codes/Tokens sowie Leistungsart beginnend mit N)</span>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8 }}>
+              <input className="input" placeholder="Projektcode" value={test.code} onChange={(e)=>setTest(t=>({...t, code:e.target.value}))} />
+              <input className="input" placeholder="Projektname" value={test.name} onChange={(e)=>setTest(t=>({...t, name:e.target.value}))} />
+              <input className="input" placeholder="Leistungsart" value={test.la} onChange={(e)=>setTest(t=>({...t, la:e.target.value}))} />
+            </div>
+            <div style={{ marginTop:8 }}>
+              {testRes.matched ? (
+                <span className="badge">Treffer: {testRes.by} {testRes.value? `(${String(testRes.value)})`: ''}</span>
+              ) : (
+                <span className="badge">Kein Treffer</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
