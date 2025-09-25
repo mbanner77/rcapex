@@ -126,6 +126,17 @@ function normalizeMapping(mapping){
   const tokens = Array.isArray(mapping?.tokens) ? mapping.tokens.map(s=>String(s||'').trim().toUpperCase()).filter(Boolean) : []
   return { projects, tokens }
 }
+function parseMappingFromReq(req){
+  try{
+    const src = req?.method === 'POST' ? (req.body||{}) : (req.query||{})
+    const rawP = src.mappingProjects
+    const rawT = src.mappingTokens
+    const toArr = (v)=> Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : [])
+    const m = normalizeMapping({ projects: toArr(rawP), tokens: toArr(rawT) })
+    if ((m.projects.length + m.tokens.length) === 0) return PERSISTED_MAPPING
+    return m
+  }catch(_){ return PERSISTED_MAPPING }
+}
 function isInternalProject(row, mapping){
   const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
   const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()

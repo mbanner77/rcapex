@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getMailSettings, updateMailSettings, sendMailTest, getApexSettings, updateApexSettings, testApex } from '../lib/api'
 import { getUnits, DEFAULT_UNITS } from '../lib/constants'
+import InternalMappingDialog from './InternalMappingDialog'
 
 const SMTP_DEFAULTS = {
   host: 'smtp.strato.de',
@@ -20,6 +21,7 @@ export default function SettingsDialog({ onClose }) {
   const [okMsg, setOkMsg] = useState('')
   const [apexMsg, setApexMsg] = useState('')
   const [unitsMsg, setUnitsMsg] = useState('')
+  const [showMapping, setShowMapping] = useState(false)
 
   const [form, setForm] = useState({
     // APEX
@@ -201,6 +203,16 @@ export default function SettingsDialog({ onClose }) {
           <div style={{ padding: 12 }}>Lade…</div>
         ) : (
           <div style={{ marginTop: 12, display:'grid', gap:12 }}>
+            {/* Internal Mapping Management */}
+            <div className="panel" style={{ padding: 12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <h4 style={{ margin:0 }}>Interne Projekte – Mapping</h4>
+                <small style={{ color:'var(--muted)' }}>Pflege der internen Projektcodes und Token</small>
+                <div style={{ flex:1 }} />
+                <button className="btn" onClick={()=>setShowMapping(true)}>Mapping öffnen…</button>
+              </div>
+              <div style={{ color:'var(--muted)' }}>Das Mapping kann auch direkt im Watchdog geöffnet werden.</div>
+            </div>
             {/* APEX Credentials */}
             <div className="panel" style={{ padding: 12 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
@@ -294,6 +306,9 @@ export default function SettingsDialog({ onClose }) {
           </div>
         )}
       </div>
+      {showMapping && (
+        <InternalMappingDialog onClose={()=>setShowMapping(false)} />
+      )}
     </div>
   )
 }
