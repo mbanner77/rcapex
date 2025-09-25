@@ -287,7 +287,11 @@ export default function ReportSchedules({ onClose }){
             </div>
 
             <div className="panel" style={{ padding:12 }}>
-              <strong>Eintrag {form.id ? '(Bearbeiten)' : '(Neu)'} </strong>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <strong>Eintrag {form.id ? '(Bearbeiten)' : '(Neu)'} </strong>
+                <div style={{ flex:1 }} />
+                <button className="btn" onClick={save} disabled={saving}>{saving? 'Speichere…' : 'Speichern'}</button>
+              </div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:12, marginTop:8 }}>
                 <Labeled label="Name">
                   <input className="input" value={form.name} onChange={(e)=>update('name', e.target.value)} placeholder="Monatsreport" />
