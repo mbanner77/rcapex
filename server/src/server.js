@@ -6,6 +6,8 @@ import axios from 'axios';
 import session from 'express-session';
 import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
+// Shared internal-project logic (single source of truth)
+import { extractMeta as sharedExtractMeta, detectInternalDetail as sharedDetectInternalDetail, isInternalProject as sharedIsInternalProject, isExcludedByLeistungsart as sharedIsExcludedByLeistungsart, normalizeMapping as sharedNormalizeMapping } from '../../shared/internal.js'
 // Using QuickChart for chart rendering to avoid native dependencies
 
 dotenv.config();
@@ -72,35 +74,15 @@ function ensureDefaultWatchdogSchedule(){
 }
 
 function extractMeta(row){
-  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
-  const kunde = String(row?.KUNDE || row?.kunde || '').toString()
-  const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
-  return { code, kunde, leistungsart: la }
+  return sharedExtractMeta(row)
 }
 function detectInternalDetail(row, mapping){
-  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
-  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
-  const hay = `${code} ${name}`
-  const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
-  if (la.startsWith('N')) return { matched: true, by: 'leistungsart', value: la.charAt(0) || 'N' }
-  const m = normalizeMapping(mapping)
-  if (m.projects.length && m.projects.includes(code)) return { matched: true, by: 'code', value: code }
-  if (m.tokens.length){
-    const tok = m.tokens.find(t => hay.includes(t))
-    if (tok) return { matched: true, by: 'token', value: tok }
-  }
-  if (code.startsWith('INT') || name.startsWith('INT')) return { matched: true, by: 'legacy_prefix', value: 'INT' }
-  const tokens = hay.split(/[^A-Z0-9]+/).filter(Boolean)
-  if (tokens.includes('INT')) return { matched: true, by: 'legacy_token', value: 'INT' }
-  return { matched: false }
+  return sharedDetectInternalDetail(row, mapping)
 }
 
 // Exclusion: rows where Leistungsart starts with 'J' are ignored by the watchdog
 function isExcludedByLeistungsart(row){
-  try{
-    const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
-    return la.startsWith('J')
-  }catch(_){ return false }
+  return sharedIsExcludedByLeistungsart(row)
 }
 // Persist helpers
 async function loadPersistedApex() {
@@ -169,9 +151,7 @@ function isoWeekId(d){
   return `${year}-W${w}`
 }
 function normalizeMapping(mapping){
-  const projects = Array.isArray(mapping?.projects) ? mapping.projects.map(s=>String(s||'').trim().toUpperCase()).filter(Boolean) : []
-  const tokens = Array.isArray(mapping?.tokens) ? mapping.tokens.map(s=>String(s||'').trim().toUpperCase()).filter(Boolean) : []
-  return { projects, tokens }
+  return sharedNormalizeMapping(mapping)
 }
 function parseMappingFromReq(req){
   try{
@@ -185,21 +165,7 @@ function parseMappingFromReq(req){
   }catch(_){ return PERSISTED_MAPPING }
 }
 function isInternalProject(row, mapping){
-  const code = String(row?.PROJEKT || row?.projekt || row?.projektcode || '').toUpperCase().trim()
-  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || '').toUpperCase().trim()
-  const la = String(row?.LEISTUNGSART || row?.leistungsart || row?.LEISTART || '').toUpperCase().trim()
-  if (la.startsWith('N')) return true
-  // user-defined mapping (exact codes and token substrings)
-  const m = normalizeMapping(mapping)
-  if (m.projects.length || m.tokens.length){
-    if (m.projects.some(p => p === code)) return true
-    const hay = `${code} ${name}`
-    if (m.tokens.some(t => hay.includes(t))) return true
-  }
-  // legacy heuristic fallback: INT prefix or token
-  if (code.startsWith('INT') || name.startsWith('INT')) return true
-  const tokens = (code + ' ' + name).split(/[^A-Z0-9]+/).filter(Boolean)
-  return tokens.includes('INT')
+  return sharedIsInternalProject(row, mapping)
 }
 
 // Compute weekly internal share per employee for a given date range (inclusive)

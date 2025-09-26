@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getInternalMapping, saveInternalMapping } from '../lib/mapping'
 import { getInternalMappingServer, updateInternalMappingServer } from '../lib/api'
+// Use centralized internal detection logic (shared across client/server)
+import { quickDetectInternal, isExcludedByLeistungsart } from '../shared/internal.js'
 
 export default function InternalMappingDialog({ onClose }){
   const [projects, setProjects] = useState([])
@@ -59,22 +61,14 @@ export default function InternalMappingDialog({ onClose }){
 
   const counts = useMemo(()=> ({ codes: (projects||[]).filter(Boolean).length, tokens: (tokens||[]).filter(Boolean).length }), [projects, tokens])
 
-  // Quick test (mirrors server logic: codes exact (case-insensitive), tokens substring on code/name (case-insensitive), Leistungsart starting with 'N' is internal)
+  // Quick test using shared logic; excludes Leistungsart starting with 'J'
   function quickTest(mapping){
     const code = String(test.code||'')
     const name = String(test.name||'')
     const la = String(test.la||'')
-    if (la.trim().toUpperCase().startsWith('N')) return { matched:true, by:'leistungsart', value:'N' }
-    const mCodes = (mapping.projects||[]).map(s=> String(s||'').trim().toLowerCase())
-    const mTokens = (mapping.tokens||[]).map(s=> String(s||'').trim().toLowerCase())
-    const codeL = code.trim().toLowerCase()
-    const hay = `${code} ${name}`.toLowerCase()
-    if (mCodes.includes(codeL)) return { matched:true, by:'code', value:code }
-    const tok = mTokens.find(t=> hay.includes(t))
-    if (tok) return { matched:true, by:'token', value:tok }
-    // legacy fallback (client-side hint)
-    if (code.trim().toUpperCase().startsWith('INT') || String(name||'').toUpperCase().startsWith('INT')) return { matched:true, by:'legacy', value:'INT' }
-    return { matched:false }
+    // Exclusion applied first for parity with watchdog
+    if (isExcludedByLeistungsart({ LEISTUNGSART: la })) return { matched:false, by:'excluded', value:'J' }
+    return quickDetectInternal(code, name, la, mapping)
   }
   const testRes = useMemo(()=> quickTest({ projects, tokens }), [projects, tokens, test.code, test.name, test.la])
 
