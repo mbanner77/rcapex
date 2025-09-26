@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Bar, Line, Doughnut } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -12,15 +12,20 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js'
-import {
-  groupByEmployeeMonthly,
-  extractMonths,
-} from '../lib/transform'
+import { groupByEmployeeMonthly, extractMonths } from '../lib/transform'
+import { isInternalProject, isExcludedByLeistungsart } from '../shared/internal.js'
+import { getInternalMapping } from '../lib/mapping'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Title, Tooltip, Legend)
 
 export default function EmployeeTab({ stundenRaw, params }) {
   const items = useMemo(() => stundenRaw?.items || stundenRaw || [], [stundenRaw])
+  const [mapping, setMapping] = useState(() => getInternalMapping())
+  useEffect(() => {
+    const onMap = () => setMapping(getInternalMapping())
+    window.addEventListener('internal_mapping_changed', onMap)
+    return () => window.removeEventListener('internal_mapping_changed', onMap)
+  }, [])
   const [metric, setMetric] = useState('stunden_fakt') // 'stunden_fakt' | 'stunden_gel'
   const [employee, setEmployee] = useState('')
   const [stacked, setStacked] = useState(false)
@@ -50,10 +55,9 @@ export default function EmployeeTab({ stundenRaw, params }) {
   }, [empItems])
 
   
-function isInternal(x) {
-  const code = String(x?.projektcode || '').toUpperCase()
-  const name = String(x?.projektname || '').toUpperCase()
-  return code.startsWith('INT') || name.startsWith('INT')
+function isInternal(x, mapping) {
+  if (isExcludedByLeistungsart(x)) return false
+  return isInternalProject(x, mapping)
 }
 
 function InternalVsBilled({ items }) {
@@ -65,7 +69,7 @@ function InternalVsBilled({ items }) {
       const emp = x?.mitarbeiter || 'Unbekannt'
       const g = parseFloat(x?.stunden_gel)
       const f = parseFloat(x?.stunden_fakt)
-      if (isInternal(x)) {
+      if (isInternal(x, mapping)) {
         mapInternal.set(emp, (mapInternal.get(emp) || 0) + (Number.isNaN(g)?0:g))
       }
       mapBilled.set(emp, (mapBilled.get(emp) || 0) + (Number.isNaN(f)?0:f))
@@ -222,7 +226,7 @@ function InternalVsBilled({ items }) {
           <div className="panel kpi-card"><div className="kpi-title">Summe geleistet</div><div className="kpi-value">{`${fmt(kpis.sg)} h`}</div></div>
           <div className="panel kpi-card"><div className="kpi-title">Quote Fakt/Gel</div><div className="kpi-value">{kpis.sg>0? `${((kpis.sf/kpis.sg)*100).toFixed(1)}%` : '—'}</div></div>
           <div className="panel kpi-card"><div className="kpi-title">Interner Anteil</div><div className="kpi-value">{(() => {
-            let gi=0, g=0; for (const x of empItems){ const val=parseFloat(x?.stunden_gel)||0; g+=val; if(isInternal(x)) gi+=val } return g>0? `${((gi/g)*100).toFixed(1)}%`:'—' })()}</div></div>
+            let gi=0, g=0; for (const x of empItems){ const val=parseFloat(x?.stunden_gel)||0; g+=val; if(isInternal(x, mapping)) gi+=val } return g>0? `${((gi/g)*100).toFixed(1)}%`:'—' })()}</div></div>
         </div>
 
         <div className="chart-lg">

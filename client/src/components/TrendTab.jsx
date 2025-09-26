@@ -12,6 +12,8 @@ import {
 } from 'chart.js'
 import { fetchStunden } from '../lib/api'
 import { exportGenericCsv } from '../lib/export'
+import { isInternalProject, isExcludedByLeistungsart } from '../shared/internal'
+import { getInternalMapping } from '../lib/mapping'
 import { exportTrendCsv } from '../lib/export'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
@@ -29,13 +31,18 @@ function parseMonthInput(v) {
   return { y, m: m-1 }
 }
 
-function isInternal(item) {
-  const code = String(item?.projektcode || '').toUpperCase()
-  const name = String(item?.projektname || '').toUpperCase()
-  return code.startsWith('INT') || name.startsWith('INT')
+function isInternal(item, mapping) {
+  if (isExcludedByLeistungsart(item)) return false
+  return isInternalProject(item, mapping)
 }
 
 export default function TrendTab({ params }) {
+  const [mapping, setMapping] = useState(() => getInternalMapping())
+  useEffect(() => {
+    const onMap = () => setMapping(getInternalMapping())
+    window.addEventListener('internal_mapping_changed', onMap)
+    return () => window.removeEventListener('internal_mapping_changed', onMap)
+  }, [])
   const [fromMonth, setFromMonth] = useState('')
   const [toMonth, setToMonth] = useState('')
   const [loading, setLoading] = useState(false)
@@ -102,14 +109,14 @@ export default function TrendTab({ params }) {
         const f = parseFloat(x?.stunden_fakt); const g = parseFloat(x?.stunden_gel)
         if (!Number.isNaN(f)) sf += f
         if (!Number.isNaN(g)) sg += g
-        if (isInternal(x)) {
+        if (isInternal(x, mapping)) {
           if (!Number.isNaN(g)) si += g
         }
       }
       fakt.push(sf); gel.push(sg); internal.push(si)
     }
     return { labels, fakt, gel, internal }
-  }, [series])
+  }, [series, mapping])
 
   function ma3(arr){
     const out=[]
