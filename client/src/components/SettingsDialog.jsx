@@ -74,6 +74,11 @@ export default function SettingsDialog({ onClose }) {
         if (!cancelled) setLoading(false)
       }
 
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   // --- Holidays helpers ---
   function addHoliday(){
     setHolidaysMsg('')
@@ -99,10 +104,6 @@ export default function SettingsDialog({ onClose }) {
       setHolidaysMsg('Feiertage gespeichert')
     }catch(e){ setHolidaysMsg('Fehler: '+(e?.response?.data?.message || e.message)) }
   }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [])
 
   function update(key, value){ setForm((f)=>({ ...f, [key]: value })) }
 
