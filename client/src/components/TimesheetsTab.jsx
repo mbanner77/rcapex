@@ -186,7 +186,7 @@ export default function TimesheetsTab(){
                 const rowCls = s==='bad' ? 'row-bad' : (s==='warn' ? 'row-warn' : 'row-good')
                 return (
                 <tr key={idx} className={rowCls}>
-                  <td>{r.mitarbeiter}</td>
+                  <td><span className={`dot ${s==='bad' ? 'dot-bad' : (s==='warn' ? 'dot-warn' : 'dot-good')}`}></span>{r.mitarbeiter}</td>
                   <td className="right">{fmt(r.total)}</td>
                   <td className="right">{fmt(r.expected)}</td>
                   <td className="right">{((r.ratio||0)*100).toFixed(0)}%</td>
@@ -202,7 +202,7 @@ export default function TimesheetsTab(){
               const bCls = s==='bad' ? 'badge-bad' : (s==='warn' ? 'badge-warn' : 'badge-good')
               return (
               <div className="card" key={idx}>
-                <div className="row"><strong>{r.mitarbeiter}</strong><div className={`badge ${bCls}`}>{((r.ratio||0)*100).toFixed(0)}%</div></div>
+                <div className="row"><strong><span className={`dot ${s==='bad' ? 'dot-bad' : (s==='warn' ? 'dot-warn' : 'dot-good')}`}></span>{r.mitarbeiter}</strong><div className={`badge ${bCls}`}>{((r.ratio||0)*100).toFixed(0)}%</div></div>
                 <div className="row"><span>Summe</span><span>{fmt(r.total)} h</span></div>
                 <div className="row"><span>Soll</span><span>{fmt(r.expected)} h</span></div>
               </div>

@@ -553,9 +553,11 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
   else html += `<p>Bedingungen (Mo–Fr): <span style="color:#22c55e">Grün</span> ≥ Soll (5×${Number(hoursPerDay||8)}h), <span style="color:#facc15">Gelb</span> 0–&lt;Soll, <span style="color:#ef4444">Rot</span> = 0h</p>`
   html += `<p><strong>${offenders.length}</strong> Mitarbeiter mit Gelb/Rot.</p>`
   const rowColor = (s)=> s==='bad'? 'background:rgba(239,68,68,0.12)' : (s==='warn' ? 'background:rgba(250,204,21,0.12)' : 'background:rgba(34,197,94,0.10)')
-  html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Mitarbeiter</th><th style="text-align:right">Summe (h)</th><th style="text-align:right">Soll (h)</th><th style="text-align:right">Erfüllung</th><th>Status</th></tr></thead><tbody>'
+  const dot = (s)=> `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:6px;border:1px solid rgba(0,0,0,0.08);background:${s==='bad'?'#ef4444':(s==='warn'?'#facc15':'#22c55e')}"></span>`
+  const label = (s)=> s==='bad' ? 'Rot' : (s==='warn' ? 'Gelb' : 'Grün')
+  html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Ampel</th><th>Mitarbeiter</th><th style="text-align:right">Summe (h)</th><th style="text-align:right">Soll (h)</th><th style="text-align:right">Erfüllung</th><th>Status</th></tr></thead><tbody>'
   for (const r of rows){
-    html += `<tr style="${rowColor(r.status)}"><td>${r.mitarbeiter}</td><td style=\"text-align:right\">${hoursFmt(r.total)}</td><td style=\"text-align:right\">${hoursFmt(r.expected)}</td><td style=\"text-align:right\">${(r.ratio*100).toFixed(0)}%</td><td>${r.status}</td></tr>`
+    html += `<tr style="${rowColor(r.status)}"><td>${dot(r.status)}</td><td>${r.mitarbeiter}</td><td style=\"text-align:right\">${hoursFmt(r.total)}</td><td style=\"text-align:right\">${hoursFmt(r.expected)}</td><td style=\"text-align:right\">${(r.ratio*100).toFixed(0)}%</td><td>${label(r.status)}</td></tr>`
   }
   html += '</tbody></table>'
   const csvLines = ['mitarbeiter;total;expected;ratio']
@@ -606,15 +608,19 @@ app.get('/api/watchdogs/timesheets/preview-page', async (req, res) => {
     const rows = Array.isArray(result?.rows) ? result.rows : []
     const rc = (s)=> s==='bad'? 'background:rgba(239,68,68,0.12)' : (s==='warn' ? 'background:rgba(250,204,21,0.12)' : 'background:rgba(34,197,94,0.10)')
     const html = `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Erfassungs-Kontrolle</title>
-      <style>body{background:#fff;color:#111;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:10px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:6px 8px;font-size:14px} th{background:#f5f5f5;text-align:left} .right{text-align:right} .muted{color:#666}</style>
+      <style>body{background:#fff;color:#111;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:10px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:6px 8px;font-size:14px} th{background:#f5f5f5;text-align:left} .right{text-align:right} .muted{color:#666} .amp{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:6px;border:1px solid rgba(0,0,0,0.08)}</style>
     </head><body>
       <div class=\"muted\">Zeitraum: ${(result.range?.datum_von||'').slice(0,10)} – ${(result.range?.datum_bis||'').slice(0,10)} · Unit: ${unit} · Modus: ${mode}</div>
       <h3>Erfassungs-Kontrolle</h3>
       <div class=\"muted\">Legende: <span style=\"color:#22c55e\">Grün</span> ≥ Soll · <span style=\"color:#facc15\">Gelb</span> 0–&lt;Soll · <span style=\"color:#ef4444\">Rot</span> 0h</div>
       ${rows.length===0 ? `<div class=\"muted\">Keine Daten.</div>` : ''}
-      <table><thead><tr><th>Mitarbeiter</th><th class=\"right\">Summe (h)</th><th class=\"right\">Soll (h)</th><th class=\"right\">Erfüllung</th><th>Status</th></tr></thead>
+      <table><thead><tr><th>Ampel</th><th>Mitarbeiter</th><th class=\"right\">Summe (h)</th><th class=\"right\">Soll (h)</th><th class=\"right\">Erfüllung</th><th>Status</th></tr></thead>
       <tbody>
-        ${rows.map(r=>`<tr style=\"${rc(r.status)}\"><td>${r.mitarbeiter}</td><td class=right>${Number(r.total||0).toFixed(2)}</td><td class=right>${Number(r.expected||0).toFixed(2)}</td><td class=right>${((r.ratio||0)*100).toFixed(0)}%</td><td>${r.status}</td></tr>`).join('')}
+        ${rows.map(r=>{
+          const color = r.status==='bad'?'#ef4444':(r.status==='warn'?'#facc15':'#22c55e');
+          const label = r.status==='bad'?'Rot':(r.status==='warn'?'Gelb':'Grün');
+          return `<tr style=\"${rc(r.status)}\"><td><span class=\"amp\" style=\"background:${color}\"></span></td><td>${r.mitarbeiter}</td><td class=right>${Number(r.total||0).toFixed(2)}</td><td class=right>${Number(r.expected||0).toFixed(2)}</td><td class=right>${((r.ratio||0)*100).toFixed(0)}%</td><td>${label}</td></tr>`
+        }).join('')}
       </tbody></table>
     </body></html>`
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
