@@ -18,6 +18,9 @@ export default function TimesheetsTab(){
   const [sortBy, setSortBy] = useState('ratio') // ratio | total | expected | mitarbeiter
   const [sortDir, setSortDir] = useState('asc') // asc | desc
   const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
+  const [mailTo, setMailTo] = useState(() => localStorage.getItem('ts_mailTo') || '')
+  const [onlyOffenders, setOnlyOffenders] = useState(() => localStorage.getItem('ts_onlyOffenders') === 'true')
+  const [ratioThreshold, setRatioThreshold] = useState(() => Number(localStorage.getItem('ts_ratioThreshold') || 90)) // monthly threshold in %
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -42,6 +45,9 @@ export default function TimesheetsTab(){
   useEffect(() => { localStorage.setItem('ts_unit', unit) }, [unit])
   useEffect(() => { localStorage.setItem('ts_mode', mode) }, [mode])
   useEffect(() => { localStorage.setItem('ts_hoursPerDay', String(hoursPerDay)) }, [hoursPerDay])
+  useEffect(() => { localStorage.setItem('ts_mailTo', mailTo) }, [mailTo])
+  useEffect(() => { localStorage.setItem('ts_onlyOffenders', String(!!onlyOffenders)) }, [onlyOffenders])
+  useEffect(() => { localStorage.setItem('ts_ratioThreshold', String(ratioThreshold)) }, [ratioThreshold])
 
   useEffect(() => {
     let cancelled = false
@@ -49,10 +55,26 @@ export default function TimesheetsTab(){
     return () => { cancelled = true }
   }, [])
 
+  function getStatus(r){
+    const total = Number(r.total) || 0
+    const expected = Number(r.expected) || 0
+    // Red: no time booked at all
+    if (total <= 0) return 'bad'
+    // Yellow: some time but below expected
+    if (expected > 0 && total < expected) return 'warn'
+    // Green: meets or exceeds expected (or no expectation provided)
+    return 'good'
+  }
+  const isOffender = (r) => {
+    const s = getStatus(r)
+    return s === 'bad' || s === 'warn'
+  }
+
   const rows = useMemo(() => {
     const base = data.rows || []
     const q = (query||'').toLowerCase().trim()
-    const filtered = q ? base.filter(r => String(r.mitarbeiter||'').toLowerCase().includes(q)) : base
+    let filtered = q ? base.filter(r => String(r.mitarbeiter||'').toLowerCase().includes(q)) : base
+    if (onlyOffenders) filtered = filtered.filter(r => isOffender(r))
     const arr = filtered.slice().sort((a,b)=>{
       let v=0
       if (sortBy==='ratio') v=(Number(a.ratio)||0)-(Number(b.ratio)||0)
@@ -65,8 +87,8 @@ export default function TimesheetsTab(){
   }, [data, query, sortBy, sortDir])
 
   async function sendMail(){
-    let to = prompt('Empfänger E-Mail (Kommagetrennt):', mailDefaults.defaultRecipient || '')
-    if (!to) return
+    const to = (mailTo || mailDefaults.defaultRecipient || '').trim()
+    if (!to){ alert('Bitte Empfänger angeben.'); return }
     try{
       await runTimesheetsWatchdog({ unit, mode, hoursPerDay, to })
       alert('Report-Mail wurde gesendet.')
@@ -84,6 +106,28 @@ export default function TimesheetsTab(){
     const off = data.offenders||[]
     return { total: all.length, offenders: off.length }
   }, [data])
+
+  function exportCsv(){
+    const header = ['mitarbeiter','total','expected','ratio']
+    const lines = [header.join(';')]
+    rows.forEach(r => {
+      lines.push([
+        String(r.mitarbeiter||'').replaceAll(';', ','),
+        String(r.total||0),
+        String(r.expected||0),
+        String(((r.ratio||0)*100).toFixed(0)+'%'),
+      ].join(';'))
+    })
+    const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const from = (data?.range?.datum_von||'').slice(0,10)
+    const to = (data?.range?.datum_bis||'').slice(0,10)
+    a.href = url
+    a.download = `timesheets_${mode}_${from}_${to}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="grid">
@@ -108,7 +152,19 @@ export default function TimesheetsTab(){
           <label style={{ color:'var(--muted)', fontSize:12 }}>h/Tag</label>
           <input className="input" type="number" min={1} max={12} value={hoursPerDay} onChange={(e)=>setHoursPerDay(Math.max(1, Math.min(12, Number(e.target.value))))} style={{ width:100 }} />
           <input className="input" placeholder="Suche Mitarbeiter" value={query} onChange={(e)=>setQuery(e.target.value)} style={{ width:240 }} />
+          <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <input type="checkbox" checked={onlyOffenders} onChange={(e)=>setOnlyOffenders(e.target.checked)} />
+            <span style={{ color:'var(--muted)', fontSize:12 }}>Nur Verstöße</span>
+          </label>
+          {mode==='monthly' && (
+            <>
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Schwelle (%)</label>
+              <input className="input" type="number" min={50} max={100} value={ratioThreshold} onChange={(e)=>setRatioThreshold(Math.max(50, Math.min(100, Number(e.target.value)||0)))} style={{ width:90 }} />
+            </>
+          )}
+          <button className="btn" onClick={exportCsv}>Export CSV</button>
           <button className="btn" onClick={preview}>Vorschau</button>
+          <input className="input" placeholder="E-Mail Empfänger (Komma)" value={mailTo} onChange={(e)=>setMailTo(e.target.value)} style={{ width:240 }} />
           <button className="btn" onClick={sendMail}>Per Mail senden…</button>
         </div>
         {loading && <div>Lade…</div>}
@@ -125,26 +181,32 @@ export default function TimesheetsTab(){
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, idx) => (
-                <tr key={idx} className={(mode==='weekly' && r.total<=0) || (mode==='monthly' && r.total<r.expected) ? 'row-bad' : ''}>
+              {rows.map((r, idx) => {
+                const s = getStatus(r)
+                const rowCls = s==='bad' ? 'row-bad' : (s==='warn' ? 'row-warn' : 'row-good')
+                return (
+                <tr key={idx} className={rowCls}>
                   <td>{r.mitarbeiter}</td>
                   <td className="right">{fmt(r.total)}</td>
                   <td className="right">{fmt(r.expected)}</td>
                   <td className="right">{((r.ratio||0)*100).toFixed(0)}%</td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
         <div className="show-sm">
           <div className="card-list">
-            {rows.map((r, idx) => (
+            {rows.map((r, idx) => {
+              const s = getStatus(r)
+              const bCls = s==='bad' ? 'badge-bad' : (s==='warn' ? 'badge-warn' : 'badge-good')
+              return (
               <div className="card" key={idx}>
-                <div className="row"><strong>{r.mitarbeiter}</strong><div className={`badge ${((mode==='weekly' && r.total<=0) || (mode==='monthly' && r.total<r.expected)) ? 'badge-bad' : 'badge'}`}>{((r.ratio||0)*100).toFixed(0)}%</div></div>
+                <div className="row"><strong>{r.mitarbeiter}</strong><div className={`badge ${bCls}`}>{((r.ratio||0)*100).toFixed(0)}%</div></div>
                 <div className="row"><span>Summe</span><span>{fmt(r.total)} h</span></div>
                 <div className="row"><span>Soll</span><span>{fmt(r.expected)} h</span></div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
       </div>

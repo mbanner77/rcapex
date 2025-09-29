@@ -137,6 +137,7 @@ body{
 .card .row{ display:flex; justify-content:space-between; gap:8px; margin:4px 0 }
 .badge-warn{ background:rgba(250,204,21,0.15); color:#fde68a; border:1px solid rgba(250,204,21,0.35) }
 .badge-bad{ background:rgba(239,68,68,0.18); color:#fecaca; border:1px solid rgba(239,68,68,0.35) }
+.badge-good{ background:rgba(34,197,94,0.14); color:#bbf7d0; border:1px solid rgba(34,197,94,0.35) }
 
 /* KPI grid */
 .kpi-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:12px }

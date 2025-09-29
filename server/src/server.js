@@ -526,33 +526,38 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
     const expected = workingDays * Number(hoursPerDay||8)
     for (const name of empSet){
       const tot = Number(byEmp.get(name)||0)
-      const row = { mode, mitarbeiter: name, total: tot, expected, ratio: expected>0 ? tot/expected : 1 }
+      const ratio = expected>0 ? tot/expected : 1
+      let status = 'good'
+      if (tot <= 0) status = 'bad'
+      else if (tot < expected) status = 'warn'
+      const row = { mode, mitarbeiter: name, total: tot, expected, ratio, status }
       rows.push(row)
-      if (tot < expected) offenders.push(row)
+      if (status !== 'good') offenders.push(row)
     }
   } else {
     for (const name of empSet){
       const tot = Number(byEmp.get(name)||0)
       const expected = 5 * Number(hoursPerDay||8)
-      const row = { mode, mitarbeiter: name, total: tot, expected, ratio: expected>0 ? tot/expected : 1 }
+      const ratio = expected>0 ? tot/expected : 1
+      let status = 'good'
+      if (tot <= 0) status = 'bad'
+      else if (tot < expected) status = 'warn'
+      const row = { mode, mitarbeiter: name, total: tot, expected, ratio, status }
       rows.push(row)
-      if (tot <= 0) offenders.push(row)
+      if (status !== 'good') offenders.push(row)
     }
   }
   const hoursFmt = (n)=> new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
   let html = `<p>Erfassungs-Kontrolle (${mode==='monthly'?'Monat':'Woche'}) · Unit ${unit||'ALL'}</p>`
-  if (mode === 'monthly') html += `<p>Bedingung: Summe Stunden ≥ Arbeitstage × ${Number(hoursPerDay||8)}h</p>`
-  else html += `<p>Bedingung: 0h in der letzten Woche (Mo–Fr) → Rot</p>`
-  if (offenders.length === 0){
-    html += '<p><strong>Keine Verstöße.</strong></p>'
-  } else {
-    html += `<p><strong>${offenders.length}</strong> Mitarbeiter mit Verstößen:</p>`
-    html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Mitarbeiter</th><th style="text-align:right">Summe (h)</th><th style="text-align:right">Soll (h)</th><th style="text-align:right">Erfüllung</th></tr></thead><tbody>'
-    for (const r of offenders){
-      html += `<tr><td>${r.mitarbeiter}</td><td style=\"text-align:right\">${hoursFmt(r.total)}</td><td style=\"text-align:right\">${hoursFmt(r.expected)}</td><td style=\"text-align:right\">${(r.ratio*100).toFixed(0)}%</td></tr>`
-    }
-    html += '</tbody></table>'
+  if (mode === 'monthly') html += `<p>Bedingungen: <span style="color:#22c55e">Grün</span> ≥ Soll, <span style="color:#facc15">Gelb</span> 0–&lt;Soll, <span style="color:#ef4444">Rot</span> = 0h</p>`
+  else html += `<p>Bedingungen (Mo–Fr): <span style="color:#22c55e">Grün</span> ≥ Soll (5×${Number(hoursPerDay||8)}h), <span style="color:#facc15">Gelb</span> 0–&lt;Soll, <span style="color:#ef4444">Rot</span> = 0h</p>`
+  html += `<p><strong>${offenders.length}</strong> Mitarbeiter mit Gelb/Rot.</p>`
+  const rowColor = (s)=> s==='bad'? 'background:rgba(239,68,68,0.12)' : (s==='warn' ? 'background:rgba(250,204,21,0.12)' : 'background:rgba(34,197,94,0.10)')
+  html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Mitarbeiter</th><th style="text-align:right">Summe (h)</th><th style="text-align:right">Soll (h)</th><th style="text-align:right">Erfüllung</th><th>Status</th></tr></thead><tbody>'
+  for (const r of rows){
+    html += `<tr style="${rowColor(r.status)}"><td>${r.mitarbeiter}</td><td style=\"text-align:right\">${hoursFmt(r.total)}</td><td style=\"text-align:right\">${hoursFmt(r.expected)}</td><td style=\"text-align:right\">${(r.ratio*100).toFixed(0)}%</td><td>${r.status}</td></tr>`
   }
+  html += '</tbody></table>'
   const csvLines = ['mitarbeiter;total;expected;ratio']
     .concat(rows.map(r => [String(r.mitarbeiter||'').replaceAll(';',','), r.total, r.expected, (r.ratio*100).toFixed(0)].join(';')))
   const attachments = [{ filename: `timesheets_${mode}.csv`, content: Buffer.from(csvLines.join('\n'), 'utf8') }]
@@ -599,15 +604,17 @@ app.get('/api/watchdogs/timesheets/preview-page', async (req, res) => {
     const hoursPerDay = Number(req.query.hoursPerDay || 8)
     const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [] })
     const rows = Array.isArray(result?.rows) ? result.rows : []
+    const rc = (s)=> s==='bad'? 'background:rgba(239,68,68,0.12)' : (s==='warn' ? 'background:rgba(250,204,21,0.12)' : 'background:rgba(34,197,94,0.10)')
     const html = `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Erfassungs-Kontrolle</title>
       <style>body{background:#fff;color:#111;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:10px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:6px 8px;font-size:14px} th{background:#f5f5f5;text-align:left} .right{text-align:right} .muted{color:#666}</style>
     </head><body>
       <div class=\"muted\">Zeitraum: ${(result.range?.datum_von||'').slice(0,10)} – ${(result.range?.datum_bis||'').slice(0,10)} · Unit: ${unit} · Modus: ${mode}</div>
       <h3>Erfassungs-Kontrolle</h3>
+      <div class=\"muted\">Legende: <span style=\"color:#22c55e\">Grün</span> ≥ Soll · <span style=\"color:#facc15\">Gelb</span> 0–&lt;Soll · <span style=\"color:#ef4444\">Rot</span> 0h</div>
       ${rows.length===0 ? `<div class=\"muted\">Keine Daten.</div>` : ''}
-      <table><thead><tr><th>Mitarbeiter</th><th class=\"right\">Summe (h)</th><th class=\"right\">Soll (h)</th><th class=\"right\">Erfüllung</th></tr></thead>
+      <table><thead><tr><th>Mitarbeiter</th><th class=\"right\">Summe (h)</th><th class=\"right\">Soll (h)</th><th class=\"right\">Erfüllung</th><th>Status</th></tr></thead>
       <tbody>
-        ${rows.map(r=>`<tr><td>${r.mitarbeiter}</td><td class=right>${Number(r.total||0).toFixed(2)}</td><td class=right>${Number(r.expected||0).toFixed(2)}</td><td class=right>${((r.ratio||0)*100).toFixed(0)}%</td></tr>`).join('')}
+        ${rows.map(r=>`<tr style=\"${rc(r.status)}\"><td>${r.mitarbeiter}</td><td class=right>${Number(r.total||0).toFixed(2)}</td><td class=right>${Number(r.expected||0).toFixed(2)}</td><td class=right>${((r.ratio||0)*100).toFixed(0)}%</td><td>${r.status}</td></tr>`).join('')}
       </tbody></table>
     </body></html>`
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
