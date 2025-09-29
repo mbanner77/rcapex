@@ -50,6 +50,6 @@ services:
       - key: SMTP_FROM
         value: m.banner@futurestore.shop
       - key: SMTP_DEFAULT_RECIPIENT
-        sync: false
+        value: olaf.glebsattel@realcore.de, m.banner@realcore.de
       - key: DEBUG_MAIL
         value: "0"

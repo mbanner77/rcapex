@@ -12,6 +12,7 @@ import WatchdogTab from './components/WatchdogTab.jsx'
 import ComparisonTab from './components/ComparisonTab.jsx'
 import TrendTab from './components/TrendTab.jsx'
 import EmployeeTab from './components/EmployeeTab.jsx'
+import TimesheetsTab from './components/TimesheetsTab.jsx'
 import { exportCustomersCsv, exportProjectsCsv } from './lib/export'
 import Login from './components/Login.jsx'
 import PasswordGate from './components/PasswordGate.jsx'
@@ -35,7 +36,7 @@ const DEFAULTS = {
 export default function App() {
   const [gate, setGate] = useState(false)
   const [auth, setAuth] = useState({ checked: false, loggedIn: false, username: null })
-  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog'
+  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog' | 'timesheets'
   const [params, setParams] = useState(DEFAULTS)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -159,6 +160,7 @@ export default function App() {
             <div className={`tab ${tab==='trends' ? 'active' : ''}`} onClick={() => setTab('trends')}>Trends</div>
             <div className={`tab ${tab==='umsatzliste' ? 'active' : ''}`} onClick={() => setTab('umsatzliste')}>Umsatzliste</div>
             <div className={`tab ${tab==='watchdog' ? 'active' : ''}`} onClick={() => setTab('watchdog')}>Watchdog</div>
+            <div className={`tab ${tab==='timesheets' ? 'active' : ''}`} onClick={() => setTab('timesheets')}>Erfassung</div>
           </div>
 
           {kundenAgg && (
@@ -201,6 +203,10 @@ export default function App() {
 
           {tab === 'watchdog' && (
             <WatchdogTab />
+          )}
+
+          {tab === 'timesheets' && (
+            <TimesheetsTab />
           )}
         </div>
       </div>

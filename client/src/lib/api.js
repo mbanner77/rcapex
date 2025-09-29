@@ -144,3 +144,14 @@ export async function updateInternalMappingServer(mapping) {
   const res = await axios.post('/api/watchdogs/internal/mapping', payload)
   return res.data?.mapping || payload
 }
+
+// --- Timesheets watchdog ---
+export async function fetchTimesheetsReport(params) {
+  const res = await axios.get('/api/watchdogs/timesheets/report', { params })
+  return res.data
+}
+
+export async function runTimesheetsWatchdog(payload) {
+  const res = await axios.post('/api/watchdogs/timesheets/run', payload)
+  return res.data
+}

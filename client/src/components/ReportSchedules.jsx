@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf, runInternalWatchdog } from '../lib/api'
+import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf, runInternalWatchdog, runTimesheetsWatchdog } from '../lib/api'
 import { getUnits } from '../lib/constants'
 
 const DEFAULT = {
   id: '',
   name: '',
   active: true,
-  kind: 'report', // 'report' | 'watchdog_internal'
+  kind: 'report', // 'report' | 'watchdog_internal' | 'watchdog_timesheets'
   report: 'stunden', // used when kind==='report' -> 'stunden' | 'umsatzliste'
   unit: 'ALL',
   rangePreset: 'last_month', // 'last_month' | 'last_week'
@@ -77,6 +77,9 @@ export default function ReportSchedules({ onClose }){
       useMinTotal: (item?.useMinTotal ?? false) === true,
       minTotalHours: Number(item?.minTotalHours || 0),
       combine: item?.combine === 'and' ? 'and' : 'or',
+      // timesheets
+      mode: item?.mode === 'monthly' ? 'monthly' : 'weekly',
+      hoursPerDay: Number(item?.hoursPerDay || 8),
     })
   }
 
@@ -159,6 +162,10 @@ export default function ReportSchedules({ onClose }){
         const to = (Array.isArray(item?.recipients) ? item.recipients : []).join(',')
         await runInternalWatchdog({ unit: item?.unit || 'ALL', to, threshold: item?.threshold ?? 0.2, weeksBack: item?.weeksBack || 1 })
         alert('Watchdog wurde angestoßen.')
+      } else if (item?.kind === 'watchdog_timesheets') {
+        const to = (Array.isArray(item?.recipients) ? item.recipients : []).join(',')
+        await runTimesheetsWatchdog({ unit: item?.unit || 'ALL', mode: item?.mode || 'weekly', hoursPerDay: item?.hoursPerDay || 8, to })
+        alert('Watchdog wurde angestoßen.')
       } else {
         await runReportNow({ scheduleId: item?.id })
         alert('Report wurde angestoßen.')
@@ -225,7 +232,7 @@ export default function ReportSchedules({ onClose }){
                           <tr key={it.id}>
                             <td>{it.name || '-'}</td>
                             <td>{it.active ? 'Ja' : 'Nein'}</td>
-                            <td>{it.kind === 'watchdog_internal' ? 'Watchdog' : `Report: ${it.report}`}</td>
+                            <td>{it.kind === 'watchdog_internal' ? 'Watchdog (intern)' : (it.kind==='watchdog_timesheets' ? 'Watchdog (Erfassung)' : `Report: ${it.report}`)}</td>
                             <td>{it.unit || 'ALL'}</td>
                             <td>
                               {it.kind === 'watchdog_internal' ? (
@@ -236,6 +243,10 @@ export default function ReportSchedules({ onClose }){
                                     {it.useZeroLastWeek!==false ? 'Zero-LastWeek ' : ''}
                                     {it.useMinTotal ? `MinTotal ${it.minTotalHours||0}h` : ''}
                                   </div>
+                                </>
+                              ) : it.kind === 'watchdog_timesheets' ? (
+                                <>
+                                  <div>Modus: {it.mode||'weekly'} • h/Tag: {it.hoursPerDay||8}</div>
                                 </>
                               ) : (
                                 it.rangePreset
@@ -261,6 +272,14 @@ export default function ReportSchedules({ onClose }){
                                       combine: it.combine === 'and' ? 'and' : 'or'
                                     })
                                     const url = `/api/watchdogs/internal/preview-page?${params.toString()}`
+                                    window.open(url, '_blank', 'noreferrer')
+                                  }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
+                                }}>Watchdog ansehen</button>
+                              ) : it.kind === 'watchdog_timesheets' ? (
+                                <button className="btn" onClick={async ()=>{
+                                  try{
+                                    const params = new URLSearchParams({ unit: it.unit || 'ALL', mode: it.mode || 'weekly', hoursPerDay: String(it.hoursPerDay || 8) })
+                                    const url = `/api/watchdogs/timesheets/preview-page?${params.toString()}`
                                     window.open(url, '_blank', 'noreferrer')
                                   }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
                                 }}>Watchdog ansehen</button>
@@ -306,6 +325,7 @@ export default function ReportSchedules({ onClose }){
                   <select className="input" value={form.kind} onChange={(e)=>update('kind', e.target.value)}>
                     <option value="report">Report</option>
                     <option value="watchdog_internal">Watchdog: interner Anteil</option>
+                    <option value="watchdog_timesheets">Watchdog: Erfassung (Woche/Monat)</option>
                   </select>
                 </Labeled>
                 {form.kind === 'report' && (
@@ -352,6 +372,19 @@ export default function ReportSchedules({ onClose }){
                           <option value="and">UND</option>
                         </select>
                       </div>
+                    </Labeled>
+                  </>
+                )}
+                {form.kind === 'watchdog_timesheets' && (
+                  <>
+                    <Labeled label="Modus">
+                      <select className="input" value={form.mode||'weekly'} onChange={(e)=>update('mode', e.target.value)}>
+                        <option value="weekly">Wöchentlich</option>
+                        <option value="monthly">Monatlich</option>
+                      </select>
+                    </Labeled>
+                    <Labeled label="Stunden pro Tag">
+                      <input className="input" type="number" min={1} max={12} value={form.hoursPerDay||8} onChange={(e)=>update('hoursPerDay', Math.max(1, Math.min(12, Number(e.target.value))))} />
                     </Labeled>
                   </>
                 )}
