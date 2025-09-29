@@ -222,7 +222,18 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
   try{
     const projects = Array.isArray(req.body?.projects) ? req.body.projects : []
     const tokens = Array.isArray(req.body?.tokens) ? req.body.tokens : []
-    PERSISTED_MAPPING = normalizeMapping({ projects, tokens })
+    const inputRules = Array.isArray(req.body?.rules) ? req.body.rules : []
+    const rules = inputRules
+      .filter(r => r && typeof r === 'object')
+      .map((r, idx) => ({
+        id: String(r.id || `r${idx}_${Math.random().toString(36).slice(2)}`),
+        enabled: r.enabled !== false,
+        type: String(r.type||'').trim(),
+        op: r.op ? String(r.op).trim() : undefined,
+        value: r.value != null ? String(r.value) : undefined,
+      }))
+      .filter(r => ['leistungsart_prefix','code_exact','token_substring','legacy_int_prefix','legacy_int_token'].includes(r.type))
+    PERSISTED_MAPPING = normalizeMapping({ rules, projects, tokens })
     await savePersistedApex()
     res.json({ ok: true, mapping: PERSISTED_MAPPING })
   }catch(e){

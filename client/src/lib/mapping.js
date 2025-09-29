@@ -1,5 +1,5 @@
 // Helpers to manage internal projects mapping (persisted in localStorage)
-// Shape: { projects: string[], tokens: string[] }
+// Shape: { projects: string[], tokens: string[], rules?: Rule[] }
 
 const KEY = 'internal_mapping'
 
@@ -8,16 +8,20 @@ export function getInternalMapping() {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const obj = JSON.parse(raw)
-      if (obj && Array.isArray(obj.projects) && Array.isArray(obj.tokens)) return obj
+      if (obj && Array.isArray(obj.projects) && Array.isArray(obj.tokens)) {
+        if (!Array.isArray(obj.rules)) obj.rules = []
+        return obj
+      }
     }
   } catch (_) {}
-  return { projects: [], tokens: [] }
+  return { projects: [], tokens: [], rules: [] }
 }
 
 export function saveInternalMapping(mapping) {
   const safe = {
     projects: Array.isArray(mapping?.projects) ? mapping.projects.map(String) : [],
     tokens: Array.isArray(mapping?.tokens) ? mapping.tokens.map(String) : [],
+    rules: Array.isArray(mapping?.rules) ? mapping.rules : [],
   }
   localStorage.setItem(KEY, JSON.stringify(safe))
   try { window.dispatchEvent(new Event('internal_mapping_changed')) } catch (_) {}

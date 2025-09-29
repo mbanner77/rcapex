@@ -7,6 +7,7 @@ import { quickDetectInternal, isExcludedByLeistungsart } from '../shared/interna
 export default function InternalMappingDialog({ onClose }){
   const [projects, setProjects] = useState([])
   const [tokens, setTokens] = useState([])
+  const [rules, setRules] = useState([])
   const [msg, setMsg] = useState('')
   const [srvMsg, setSrvMsg] = useState('')
   const [test, setTest] = useState({ code:'', name:'', la:'' })
@@ -16,6 +17,7 @@ export default function InternalMappingDialog({ onClose }){
     const m = getInternalMapping()
     setProjects(Array.isArray(m.projects) ? m.projects : [])
     setTokens(Array.isArray(m.tokens) ? m.tokens : [])
+    setRules(Array.isArray(m.rules) ? m.rules : [])
   },[])
 
   function addProject(){ setProjects(arr => [...arr, '']) }
@@ -29,6 +31,7 @@ export default function InternalMappingDialog({ onClose }){
     const cleaned = {
       projects: projects.map(s=> String(s||'').trim()).filter(Boolean),
       tokens: tokens.map(s=> String(s||'').trim()).filter(Boolean),
+      rules: sanitizeRules(rules),
     }
     try{
       saveInternalMapping(cleaned)
@@ -59,7 +62,7 @@ export default function InternalMappingDialog({ onClose }){
     setTokens(arr=> [...arr, ...parts])
   }
 
-  const counts = useMemo(()=> ({ codes: (projects||[]).filter(Boolean).length, tokens: (tokens||[]).filter(Boolean).length }), [projects, tokens])
+  const counts = useMemo(()=> ({ codes: (projects||[]).filter(Boolean).length, tokens: (tokens||[]).filter(Boolean).length, rules: (rules||[]).length }), [projects, tokens, rules])
 
   // Quick test using shared logic; excludes Leistungsart starting with 'J'
   function quickTest(mapping){
@@ -67,10 +70,10 @@ export default function InternalMappingDialog({ onClose }){
     const name = String(test.name||'')
     const la = String(test.la||'')
     // Exclusion applied first for parity with watchdog
-    if (isExcludedByLeistungsart({ LEISTUNGSART: la })) return { matched:false, by:'excluded', value:'J' }
+    if (isExcludedByLeistungsart({ LEISTUNGSART: la }, mapping)) return { matched:false, by:'excluded', value: String(la||'').charAt(0).toUpperCase() }
     return quickDetectInternal(code, name, la, mapping)
   }
-  const testRes = useMemo(()=> quickTest({ projects, tokens }), [projects, tokens, test.code, test.name, test.la])
+  const testRes = useMemo(()=> quickTest({ projects, tokens, rules: sanitizeRules(rules) }), [projects, tokens, rules, test.code, test.name, test.la])
 
   async function loadFromServer(){
     setSrvMsg('Lade vom Server…')
@@ -78,6 +81,7 @@ export default function InternalMappingDialog({ onClose }){
       const m = await getInternalMappingServer()
       setProjects(Array.isArray(m.projects)? m.projects : [])
       setTokens(Array.isArray(m.tokens)? m.tokens : [])
+      setRules(Array.isArray(m.rules)? m.rules : [])
       setSrvMsg('Vom Server geladen')
     }catch(e){ setSrvMsg('Fehler: '+(e?.response?.data?.message || e.message)) }
   }
@@ -88,6 +92,7 @@ export default function InternalMappingDialog({ onClose }){
       const cleaned = {
         projects: projects.map(s=> String(s||'').trim()).filter(Boolean),
         tokens: tokens.map(s=> String(s||'').trim()).filter(Boolean),
+        rules: sanitizeRules(rules),
       }
       await updateInternalMappingServer(cleaned)
       setSrvMsg('Auf Server gespeichert')
@@ -98,6 +103,7 @@ export default function InternalMappingDialog({ onClose }){
     const cleaned = {
       projects: projects.map(s=> String(s||'').trim()).filter(Boolean),
       tokens: tokens.map(s=> String(s||'').trim()).filter(Boolean),
+      rules: sanitizeRules(rules),
     }
     const blob = new Blob([JSON.stringify(cleaned, null, 2)], { type: 'application/json;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -117,11 +123,32 @@ export default function InternalMappingDialog({ onClose }){
         const j = JSON.parse(txt)
         setProjects(Array.isArray(j?.projects)? j.projects : [])
         setTokens(Array.isArray(j?.tokens)? j.tokens : [])
+        setRules(Array.isArray(j?.rules)? j.rules : [])
         setMsg('Importiert (lokal, noch nicht gespeichert)')
       }catch(err){ setMsg('Fehler beim Import: '+(err?.message||err)) }
     }
     inp.click()
   }
+
+  // Rules helpers
+  function sanitizeRules(arr){
+    return (Array.isArray(arr)?arr:[])
+      .filter(r=>r && typeof r==='object')
+      .map((r, idx)=>({
+        id: String(r.id || `r${idx}_${Math.random().toString(36).slice(2)}`),
+        enabled: r.enabled !== false,
+        type: String(r.type||'').trim(),
+        op: r.op ? String(r.op).trim() : undefined,
+        value: r.value!=null ? String(r.value) : undefined,
+      }))
+      .filter(r=> ['leistungsart_prefix','code_exact','token_substring','legacy_int_prefix','legacy_int_token'].includes(r.type))
+  }
+  function addRule(defaults={ type:'code_exact', enabled:true }){
+    setRules(arr=> [...arr, { id:`r${Date.now()}`, enabled:true, ...defaults }])
+  }
+  function updateRule(idx, patch){ setRules(arr=> arr.map((r,i)=> i===idx? { ...r, ...patch } : r)) }
+  function removeRule(idx){ setRules(arr=> arr.filter((_,i)=> i!==idx)) }
+  function moveRule(idx, dir){ setRules(arr=>{ const a=arr.slice(); const j=idx+dir; if(j<0||j>=a.length) return a; const t=a[idx]; a[idx]=a[j]; a[j]=t; return a }) }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -198,6 +225,69 @@ export default function InternalMappingDialog({ onClose }){
             <button className="btn" onClick={save}>Speichern</button>
             <button className="btn" onClick={reset}>Zurücksetzen</button>
             {msg && <div style={{ color:'var(--muted)' }}>{msg}</div>}
+          </div>
+          {/* Rules editor */}
+          <div className="panel" style={{ padding:10, marginTop:12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+              <strong>Regeln (flexibel)</strong>
+              <div style={{ flex:1 }} />
+              <button className="btn" onClick={()=>addRule({ type:'leistungsart_prefix', op:'include', value:'N' })}>+ LA include</button>
+              <button className="btn" onClick={()=>addRule({ type:'leistungsart_prefix', op:'exclude', value:'J' })}>+ LA exclude</button>
+              <button className="btn" onClick={()=>addRule({ type:'code_exact', value:'' })}>+ Code exakt</button>
+              <button className="btn" onClick={()=>addRule({ type:'token_substring', value:'' })}>+ Token</button>
+              <button className="btn" onClick={()=>addRule({ type:'legacy_int_prefix' })}>+ Legacy INT prefix</button>
+              <button className="btn" onClick={()=>addRule({ type:'legacy_int_token' })}>+ Legacy INT token</button>
+            </div>
+            <div style={{ overflowX:'auto' }}>
+              <table className="table" style={{ minWidth: 760 }}>
+                <thead>
+                  <tr>
+                    <th>Aktiv</th>
+                    <th>Typ</th>
+                    <th>Op</th>
+                    <th>Wert</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rules.map((r, idx)=> (
+                    <tr key={r.id||idx}>
+                      <td><input type="checkbox" checked={r.enabled!==false} onChange={(e)=>updateRule(idx, { enabled: e.target.checked })} /></td>
+                      <td>
+                        <select className="input" value={r.type||''} onChange={(e)=>updateRule(idx, { type: e.target.value })}>
+                          <option value="leistungsart_prefix">leistungsart_prefix</option>
+                          <option value="code_exact">code_exact</option>
+                          <option value="token_substring">token_substring</option>
+                          <option value="legacy_int_prefix">legacy_int_prefix</option>
+                          <option value="legacy_int_token">legacy_int_token</option>
+                        </select>
+                      </td>
+                      <td>
+                        {r.type==='leistungsart_prefix' ? (
+                          <select className="input" value={r.op||'include'} onChange={(e)=>updateRule(idx, { op: e.target.value })}>
+                            <option value="include">include</option>
+                            <option value="exclude">exclude</option>
+                          </select>
+                        ) : <span className="muted">—</span>}
+                      </td>
+                      <td>
+                        {(r.type==='leistungsart_prefix' || r.type==='code_exact' || r.type==='token_substring') ? (
+                          <input className="input" value={r.value||''} onChange={(e)=>updateRule(idx, { value: e.target.value })} placeholder={r.type==='leistungsart_prefix'? 'z. B. N, J' : r.type==='code_exact'? 'z. B. INT' : 'z. B. intern'} />
+                        ) : <span className="muted">—</span>}
+                      </td>
+                      <td style={{ whiteSpace:'nowrap' }}>
+                        <button className="btn" onClick={()=>moveRule(idx,-1)} title="nach oben">↑</button>
+                        <button className="btn" onClick={()=>moveRule(idx, 1)} title="nach unten">↓</button>
+                        <button className="btn" onClick={()=>removeRule(idx)} title="löschen">Löschen</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop:8, color:'var(--muted)' }}>
+              Standardmäßig sind folgende Regeln vorhanden: Leistungsart include=N, exclude=J, Legacy INT (Prefix/Token). Du kannst sie hier anpassen oder deaktivieren.
+            </div>
           </div>
           <div className="panel" style={{ padding:10, marginTop:12 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>

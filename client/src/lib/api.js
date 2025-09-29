@@ -132,13 +132,14 @@ export async function runInternalWatchdog(payload) {
 // --- Internal mapping (server-persisted) ---
 export async function getInternalMappingServer() {
   const res = await axios.get('/api/watchdogs/internal/mapping')
-  return res.data?.mapping || { projects: [], tokens: [] }
+  return res.data?.mapping || { projects: [], tokens: [], rules: [] }
 }
 
 export async function updateInternalMappingServer(mapping) {
   const payload = {
     projects: Array.isArray(mapping?.projects) ? mapping.projects : [],
     tokens: Array.isArray(mapping?.tokens) ? mapping.tokens : [],
+    rules: Array.isArray(mapping?.rules) ? mapping.rules : [],
   }
   const res = await axios.post('/api/watchdogs/internal/mapping', payload)
   return res.data?.mapping || payload
