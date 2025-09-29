@@ -17,7 +17,36 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tool
 function fmt(n){ return (Number(n||0)).toLocaleString('de-DE', { maximumFractionDigits: 2 }) }
 
 export default function UmsatzTab({ umsatzRaw, params }) {
-  const items = useMemo(() => Array.isArray(umsatzRaw?.items) ? umsatzRaw.items : (Array.isArray(umsatzRaw) ? umsatzRaw : []), [umsatzRaw])
+  const rawItems = useMemo(() => Array.isArray(umsatzRaw?.items) ? umsatzRaw.items : (Array.isArray(umsatzRaw) ? umsatzRaw : []), [umsatzRaw])
+
+  // Robust German number parsing (e.g., 1.234,56 -> 1234.56)
+  function toNumberDe(v){
+    if (v == null) return 0
+    if (typeof v === 'number') return v
+    const s = String(v).trim()
+    if (!s) return 0
+    // remove thousands separators and normalize decimal comma
+    const norm = s.replace(/\./g,'').replace(',', '.')
+    const n = Number(norm)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  // Normalize keys to lowercase and provide common aliases
+  const items = useMemo(() => {
+    return rawItems.map((it) => {
+      const out = {}
+      for (const [k,v] of Object.entries(it || {})) {
+        out[String(k).toLowerCase()] = v
+      }
+      // Common aliases: projektcode/projekt, umsatz, kunde
+      if (out.projekt == null && out.projektcode != null) out.projekt = out.projektcode
+      if (out.projektcode == null && out.projekt != null) out.projektcode = out.projekt
+      if (out.umsatz == null && out.umsatz_tatsaechlich != null) out.umsatz = out.umsatz_tatsaechlich
+      if (out.umsatz_tatsaechlich == null && out.umsatz != null) out.umsatz_tatsaechlich = out.umsatz
+      if (out.kunde == null && out.kundenname != null) out.kunde = out.kundenname
+      return out
+    })
+  }, [rawItems])
 
   // Heuristik: numerische Felder automatisch erkennen
   const numericFields = useMemo(() => {
@@ -27,13 +56,13 @@ export default function UmsatzTab({ umsatzRaw, params }) {
     for (const it of sample) {
       for (const [k,v] of Object.entries(it||{})) {
         if (HIDE.has(k)) continue
-        const n = parseFloat(v)
+        const n = toNumberDe(v)
         if (!Number.isNaN(n)) counters[k] = (counters[k]||0) + 1
       }
     }
     const arr = Object.keys(counters).filter(k => counters[k] >= Math.max(1, Math.floor(sample.length*0.5)))
     // Force-include prioritized fields if present in data
-    const hasUmsatzT = items.some(it => it && Object.prototype.hasOwnProperty.call(it,'umsatz_tatsaechlich'))
+    const hasUmsatzT = items.some(it => it && (it.umsatz_tatsaechlich!=null || it.umsatz!=null))
     const hasUmsatzK = items.some(it => it && Object.prototype.hasOwnProperty.call(it,'umsatz_kalk'))
     if (hasUmsatzT && !arr.includes('umsatz_tatsaechlich')) arr.push('umsatz_tatsaechlich')
     if (hasUmsatzK && !arr.includes('umsatz_kalk')) arr.push('umsatz_kalk')
@@ -46,8 +75,8 @@ export default function UmsatzTab({ umsatzRaw, params }) {
   }, [items])
 
   // Dimensionen, die wir erwarten
-  const dimKunde = 'kunde'
-  const dimProjekt = 'projektcode'
+  const dimKunde = 'kunde' // normalized
+  const dimProjekt = 'projekt' // use 'projekt' alias
 
   // Aggregation nach Kunde
   const byCustomer = useMemo(() => {
@@ -56,8 +85,8 @@ export default function UmsatzTab({ umsatzRaw, params }) {
       const key = it?.[dimKunde] || 'Unbekannt'
       const cur = map.get(key) || { kunde: key }
       for (const f of numericFields) {
-        const v = parseFloat(it?.[f])
-        cur[f] = (cur[f]||0) + (Number.isNaN(v) ? 0 : v)
+        const v = toNumberDe(it?.[f])
+        cur[f] = (cur[f]||0) + v
       }
       map.set(key, cur)
     }
@@ -80,13 +109,13 @@ export default function UmsatzTab({ umsatzRaw, params }) {
 
   // Doughnut: vergleiche gel_std mit fakt_std (falls vorhanden), sonst fallback: erste 2 numerische Felder
   const doughnutData = useMemo(() => {
-    const hasGel = items.some(it => it && it.hasOwnProperty('gel_std'))
-    const hasFakt = items.some(it => it && it.hasOwnProperty('fakt_std'))
+    const hasGel = items.some(it => it && Object.prototype.hasOwnProperty.call(it,'gel_std'))
+    const hasFakt = items.some(it => it && Object.prototype.hasOwnProperty.call(it,'fakt_std'))
     if (hasGel || hasFakt) {
       let sumGel = 0, sumFakt = 0
       for (const it of items) {
-        const g = parseFloat(it?.gel_std); if(!Number.isNaN(g)) sumGel += g
-        const f = parseFloat(it?.fakt_std); if(!Number.isNaN(f)) sumFakt += f
+        const g = toNumberDe(it?.gel_std); sumGel += g
+        const f = toNumberDe(it?.fakt_std); sumFakt += f
       }
       return {
         labels: ['Std. geleistet (gel_std)', 'Std. fakturiert (fakt_std)'],
@@ -96,7 +125,7 @@ export default function UmsatzTab({ umsatzRaw, params }) {
     // fallback
     const fields = numericFields.slice(0,2)
     const sums = fields.map(() => 0)
-    for (const it of items) fields.forEach((f,idx) => { const v=parseFloat(it?.[f]); if(!Number.isNaN(v)) sums[idx]+=v })
+    for (const it of items) fields.forEach((f,idx) => { const v=toNumberDe(it?.[f]); sums[idx]+=v })
     return { labels: fields, datasets: [{ data: sums, backgroundColor: ['#22c55e','#60a5fa','#eab308'] }] }
   }, [items, numericFields])
 
@@ -125,6 +154,11 @@ export default function UmsatzTab({ umsatzRaw, params }) {
             byCustomer,
             'umsatzliste_kunden'
           )}>Export Kunden (CSV)</button>
+          <button className="btn" onClick={() => exportGenericCsv(
+            [{key:'projekt',label:'Projekt'}, {key:'kunde',label:'Kunde'}, ...numericFields.map(f=>({key:f,label:f}))],
+            items,
+            'umsatzliste_projekte'
+          )}>Export Projekte (CSV)</button>
         </div>
 
         <div className="kpi-grid">
