@@ -139,6 +139,12 @@ body{
 .badge-bad{ background:rgba(239,68,68,0.18); color:#fecaca; border:1px solid rgba(239,68,68,0.35) }
 .badge-good{ background:rgba(34,197,94,0.14); color:#bbf7d0; border:1px solid rgba(34,197,94,0.35) }
 
+/* Ampel dots */
+.dot{ display:inline-block; width:10px; height:10px; border-radius:50%; vertical-align:middle; margin-right:6px; border:1px solid rgba(0,0,0,0.15) }
+.dot-good{ background:#22c55e }
+.dot-warn{ background:#facc15 }
+.dot-bad{ background:#ef4444 }
+
 /* KPI grid */
 .kpi-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:12px }
 @media (max-width: 960px){ .kpi-grid{ grid-template-columns: repeat(2, 1fr) } }

@@ -275,7 +275,7 @@ export default function ReportSchedules({ onClose }){
                                       combine: it.combine === 'and' ? 'and' : 'or'
                                     })
                                     const url = `/api/watchdogs/internal/preview-page?${params.toString()}`
-                                    window.open(url, '_blank', 'noreferrer')
+                                    setPreviewUrl(url)
                                   }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
                                 }}>Watchdog ansehen</button>
                               ) : it.kind === 'watchdog_timesheets' ? (
@@ -283,7 +283,7 @@ export default function ReportSchedules({ onClose }){
                                   try{
                                     const params = new URLSearchParams({ unit: it.unit || 'ALL', mode: it.mode || 'weekly', hoursPerDay: String(it.hoursPerDay || 8) })
                                     const url = `/api/watchdogs/timesheets/preview-page?${params.toString()}`
-                                    window.open(url, '_blank', 'noreferrer')
+                                    setPreviewUrl(url)
                                   }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
                                 }}>Watchdog ansehen</button>
                               ) : (

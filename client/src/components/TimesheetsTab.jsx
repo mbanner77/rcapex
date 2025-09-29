@@ -15,8 +15,8 @@ export default function TimesheetsTab(){
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState('ratio') // ratio | total | expected | mitarbeiter
-  const [sortDir, setSortDir] = useState('asc') // asc | desc
+  const [sortBy, setSortBy] = useState('status') // status | ratio | total | expected | mitarbeiter
+  const [sortDir, setSortDir] = useState('asc') // asc | desc (ignored for status because we force severity)
   const [mailDefaults, setMailDefaults] = useState({ defaultRecipient: '' })
   const [mailTo, setMailTo] = useState(() => localStorage.getItem('ts_mailTo') || '')
   const [onlyOffenders, setOnlyOffenders] = useState(() => localStorage.getItem('ts_onlyOffenders') === 'true')
@@ -75,7 +75,18 @@ export default function TimesheetsTab(){
     const q = (query||'').toLowerCase().trim()
     let filtered = q ? base.filter(r => String(r.mitarbeiter||'').toLowerCase().includes(q)) : base
     if (onlyOffenders) filtered = filtered.filter(r => isOffender(r))
+    const severity = (r)=>{ const s=getStatus(r); return s==='bad'?0:(s==='warn'?1:2) }
     const arr = filtered.slice().sort((a,b)=>{
+      if (sortBy==='status'){
+        const sv = severity(a) - severity(b)
+        if (sv !== 0) return sv
+        // tie-breaker: lower ratio first, then by total ascending, then name
+        const ra=(Number(a.ratio)||0), rb=(Number(b.ratio)||0)
+        if (ra!==rb) return ra-rb
+        const ta=(Number(a.total)||0), tb=(Number(b.total)||0)
+        if (ta!==tb) return ta-tb
+        return String(a.mitarbeiter||'').localeCompare(String(b.mitarbeiter||''))
+      }
       let v=0
       if (sortBy==='ratio') v=(Number(a.ratio)||0)-(Number(b.ratio)||0)
       else if (sortBy==='total') v=(Number(a.total)||0)-(Number(b.total)||0)
@@ -174,6 +185,7 @@ export default function TimesheetsTab(){
           <table className="table" style={{ minWidth: 900 }}>
             <thead>
               <tr>
+                <th style={{cursor:'pointer'}} onClick={()=>{ setSortBy('status'); setSortDir('asc') }}>Ampel</th>
                 <th style={{cursor:'pointer'}} onClick={()=>{ setSortBy('mitarbeiter'); setSortDir(sortBy==='mitarbeiter' && sortDir==='asc' ? 'desc' : 'asc') }}>Mitarbeiter</th>
                 <th className="right" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('total'); setSortDir(sortBy==='total' && sortDir==='asc' ? 'desc' : 'asc') }}>Summe (h)</th>
                 <th className="right" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('expected'); setSortDir(sortBy==='expected' && sortDir==='asc' ? 'desc' : 'asc') }}>Soll (h)</th>
@@ -186,7 +198,8 @@ export default function TimesheetsTab(){
                 const rowCls = s==='bad' ? 'row-bad' : (s==='warn' ? 'row-warn' : 'row-good')
                 return (
                 <tr key={idx} className={rowCls}>
-                  <td><span className={`dot ${s==='bad' ? 'dot-bad' : (s==='warn' ? 'dot-warn' : 'dot-good')}`}></span>{r.mitarbeiter}</td>
+                  <td><span className={`dot ${s==='bad' ? 'dot-bad' : (s==='warn' ? 'dot-warn' : 'dot-good')}`}></span></td>
+                  <td>{r.mitarbeiter}</td>
                   <td className="right">{fmt(r.total)}</td>
                   <td className="right">{fmt(r.expected)}</td>
                   <td className="right">{((r.ratio||0)*100).toFixed(0)}%</td>

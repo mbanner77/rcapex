@@ -362,6 +362,18 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   // Prepare email
   const pctFmt = (p)=> `${(p*100).toFixed(1)}%`
   const hoursFmt = (n)=> new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
+  // Sort rows by severity: bad (rot) > warn (gelb) > good (grün)
+  const sev = (s)=> s==='bad'?0:(s==='warn'?1:2)
+  rows.sort((a,b)=>{
+    const sv = sev(a.status) - sev(b.status)
+    if (sv !== 0) return sv
+    // tie-breakers: lower ratio first, then lower total, then by name
+    const ra=(Number(a.ratio)||0), rb=(Number(b.ratio)||0)
+    if (ra!==rb) return ra-rb
+    const ta=(Number(a.total)||0), tb=(Number(b.total)||0)
+    if (ta!==tb) return ta-tb
+    return String(a.mitarbeiter||'').localeCompare(String(b.mitarbeiter||''))
+  })
   let html = `<p>Watchdog (Unit ${unit||'ALL'}): letzte ${weeksBack} Woche(n)</p>`
   html += `<ul>`
   if (useInternalShare) html += `<li>Interner Anteil > ${pctFmt(threshold||0.2)}</li>`
