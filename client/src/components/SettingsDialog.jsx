@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { getMailSettings, updateMailSettings, sendMailTest, getApexSettings, updateApexSettings, testApex } from '../lib/api'
+import { getMailSettings, updateMailSettings, sendMailTest, getApexSettings, updateApexSettings, testApex, getHolidays, updateHolidays } from '../lib/api'
 import { getUnits, DEFAULT_UNITS } from '../lib/constants'
 import InternalMappingDialog from './InternalMappingDialog'
 
@@ -41,6 +41,9 @@ export default function SettingsDialog({ onClose }) {
 
   // Units editor state
   const [unitsForm, setUnitsForm] = useState(() => getUnits())
+  // Holidays editor state
+  const [holidaysForm, setHolidaysForm] = useState([])
+  const [holidaysMsg, setHolidaysMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -48,7 +51,7 @@ export default function SettingsDialog({ onClose }) {
       setLoading(true)
       setError('')
       try {
-        const [mail, apex] = await Promise.all([getMailSettings(), getApexSettings()])
+        const [mail, apex, holidays] = await Promise.all([getMailSettings(), getApexSettings(), getHolidays().catch(()=>[])])
         if (!cancelled) setForm((prev) => ({
           // APEX
           apexUsername: apex?.username || '',
@@ -64,11 +67,38 @@ export default function SettingsDialog({ onClose }) {
           defaultRecipient: mail?.defaultRecipient || '',
           testTo: mail?.defaultRecipient || '',
         }))
+        if (!cancelled) setHolidaysForm(Array.isArray(holidays) ? holidays : [])
       } catch (e) {
         if (!cancelled) setError(e?.response?.data?.message || e.message)
       } finally {
         if (!cancelled) setLoading(false)
       }
+
+  // --- Holidays helpers ---
+  function addHoliday(){
+    setHolidaysMsg('')
+    setHolidaysForm(arr => ([...arr, '']))
+  }
+  function removeHoliday(idx){
+    setHolidaysMsg('')
+    setHolidaysForm(arr => arr.filter((_,i)=>i!==idx))
+  }
+  function updateHoliday(idx, value){
+    setHolidaysMsg('')
+    setHolidaysForm(arr => arr.map((d,i)=> i===idx ? value : d))
+  }
+  async function saveHolidays(){
+    setHolidaysMsg('')
+    // normalize and validate YYYY-MM-DD
+    const cleaned = holidaysForm.map(s => String(s||'').slice(0,10))
+    const invalid = cleaned.filter(s => !/^\d{4}-\d{2}-\d{2}$/.test(s))
+    if (invalid.length>0){ setHolidaysMsg(`Ungültige Datumswerte: ${invalid.join(', ')}`); return }
+    try{
+      const items = await updateHolidays(cleaned)
+      setHolidaysForm(items)
+      setHolidaysMsg('Feiertage gespeichert')
+    }catch(e){ setHolidaysMsg('Fehler: '+(e?.response?.data?.message || e.message)) }
+  }
     }
     load()
     return () => { cancelled = true }
@@ -211,6 +241,32 @@ export default function SettingsDialog({ onClose }) {
                 <div style={{ flex:1 }} />
                 <button className="btn" onClick={()=>setShowMapping(true)}>Mapping öffnen…</button>
               </div>
+
+            {/* Holidays Maintenance */}
+            <div className="panel" style={{ padding: 12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <h4 style={{ margin:0 }}>Feiertage pflegen</h4>
+                <small style={{ color:'var(--muted)' }}>Format: YYYY-MM-DD (UTC). Wird beim Monatslauf (1. Werktag) berücksichtigt.</small>
+                <div style={{ flex:1 }} />
+                <button className="btn" onClick={addHoliday}>+ Datum</button>
+              </div>
+              <div style={{ display:'grid', gap:8 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:8, color:'var(--muted)', fontSize:12 }}>
+                  <div>Datum</div>
+                  <div>Aktion</div>
+                </div>
+                {holidaysForm.map((d, idx) => (
+                  <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:8 }}>
+                    <input className="input" placeholder="YYYY-MM-DD" value={d} onChange={(e)=>updateHoliday(idx, e.target.value)} />
+                    <button className="btn" onClick={()=>removeHoliday(idx)}>Löschen</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <button className="btn" onClick={saveHolidays}>Feiertage speichern</button>
+                {holidaysMsg && <div style={{ color: holidaysMsg.startsWith('Fehler') ? 'crimson' : 'var(--muted)' }}>{holidaysMsg}</div>}
+              </div>
+            </div>
               <div style={{ color:'var(--muted)' }}>Das Mapping kann auch direkt im Watchdog geöffnet werden.</div>
             </div>
             {/* APEX Credentials */}

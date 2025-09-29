@@ -155,3 +155,13 @@ export async function runTimesheetsWatchdog(payload) {
   const res = await axios.post('/api/watchdogs/timesheets/run', payload)
   return res.data
 }
+
+// --- Holidays ---
+export async function getHolidays() {
+  const res = await axios.get('/api/holidays')
+  return Array.isArray(res.data?.items) ? res.data.items : []
+}
+export async function updateHolidays(items) {
+  const res = await axios.post('/api/holidays', { items: Array.isArray(items) ? items : [] })
+  return Array.isArray(res.data?.items) ? res.data.items : []
+}
