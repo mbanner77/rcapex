@@ -12,14 +12,16 @@ const DEFAULT = {
   rangePreset: 'last_month', // 'last_month' | 'last_week'
   frequency: 'monthly', // 'daily' | 'weekly' | 'monthly'
   at: '06:00',
-  weekdays: [1], // 1..7 (Mon..Sun)
   dayOfMonth: 1,
   recipients: [],
   // Watchdog params
   threshold: 0.2, // 20%
   weeksBack: 1,
+  // timesheets
+  mode: 'weekly',
+  hoursPerDay: 8,
+  firstBusinessDay: false,
 }
-
 export default function ReportSchedules({ onClose }){
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +82,7 @@ export default function ReportSchedules({ onClose }){
       // timesheets
       mode: item?.mode === 'monthly' ? 'monthly' : 'weekly',
       hoursPerDay: Number(item?.hoursPerDay || 8),
+      firstBusinessDay: (item?.firstBusinessDay === true),
     })
   }
 
@@ -246,7 +249,7 @@ export default function ReportSchedules({ onClose }){
                                 </>
                               ) : it.kind === 'watchdog_timesheets' ? (
                                 <>
-                                  <div>Modus: {it.mode||'weekly'} • h/Tag: {it.hoursPerDay||8}</div>
+                                  <div>Modus: {it.mode||'weekly'} • h/Tag: {it.hoursPerDay||8} {it.mode==='monthly' && it.firstBusinessDay ? '• 1. Werktag' : ''}</div>
                                 </>
                               ) : (
                                 it.rangePreset
@@ -386,6 +389,13 @@ export default function ReportSchedules({ onClose }){
                     <Labeled label="Stunden pro Tag">
                       <input className="input" type="number" min={1} max={12} value={form.hoursPerDay||8} onChange={(e)=>update('hoursPerDay', Math.max(1, Math.min(12, Number(e.target.value))))} />
                     </Labeled>
+                    {form.mode==='monthly' && (
+                      <Labeled label="Monatslauf">
+                        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                          <label><input type="checkbox" checked={!!form.firstBusinessDay} onChange={(e)=>update('firstBusinessDay', e.target.checked)} /> 1. Werktag statt fester Tag</label>
+                        </div>
+                      </Labeled>
+                    )}
                   </>
                 )}
                 <Labeled label="Häufigkeit">

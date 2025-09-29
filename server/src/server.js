@@ -1261,8 +1261,24 @@ function startTicker(){
           const list = Array.isArray(s.weekdays) ? s.weekdays : [1]
           if (list.includes(wd) && now.getUTCHours() === hour && now.getUTCMinutes() === minute) runSchedule(s).catch(()=>{})
         } else if (s.frequency === 'monthly') {
-          const day = Math.max(1, Math.min(28, Number(s.dayOfMonth||1)))
-          if (now.getUTCDate() === day && now.getUTCHours() === hour && now.getUTCMinutes() === minute) runSchedule(s).catch(()=>{})
+          // Default day of month or first business day for monthly timesheets watchdogs
+          let shouldRun = false
+          if (s?.kind === 'watchdog_timesheets' && (s.mode || 'weekly') === 'monthly' && s.firstBusinessDay === true) {
+            // compute first Mon-Fri of current month (UTC)
+            const year = now.getUTCFullYear()
+            const month = now.getUTCMonth()
+            let d = new Date(Date.UTC(year, month, 1, 0, 0, 0))
+            while (true) {
+              const wd = d.getUTCDay() || 7 // 1..7
+              if (wd >= 1 && wd <= 5) break
+              d.setUTCDate(d.getUTCDate() + 1)
+            }
+            shouldRun = (now.getUTCDate() === d.getUTCDate())
+          } else {
+            const day = Math.max(1, Math.min(28, Number(s.dayOfMonth||1)))
+            shouldRun = (now.getUTCDate() === day)
+          }
+          if (shouldRun && now.getUTCHours() === hour && now.getUTCMinutes() === minute) runSchedule(s).catch(()=>{})
         }
       } catch (_) { /* ignore one schedule */ }
     }
