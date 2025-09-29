@@ -80,19 +80,19 @@ export default function SettingsDialog({ onClose }) {
   }, [])
 
   // --- Holidays helpers ---
-  function addHoliday(){
+  function onHolidayAdd(){
     setHolidaysMsg('')
     setHolidaysForm(arr => ([...arr, '']))
   }
-  function removeHoliday(idx){
+  function onHolidayRemove(idx){
     setHolidaysMsg('')
     setHolidaysForm(arr => arr.filter((_,i)=>i!==idx))
   }
-  function updateHoliday(idx, value){
+  function onHolidayUpdate(idx, value){
     setHolidaysMsg('')
     setHolidaysForm(arr => arr.map((d,i)=> i===idx ? value : d))
   }
-  async function saveHolidays(){
+  async function onHolidaysSave(){
     setHolidaysMsg('')
     // normalize and validate YYYY-MM-DD
     const cleaned = holidaysForm.map(s => String(s||'').slice(0,10))
@@ -249,7 +249,7 @@ export default function SettingsDialog({ onClose }) {
                 <h4 style={{ margin:0 }}>Feiertage pflegen</h4>
                 <small style={{ color:'var(--muted)' }}>Format: YYYY-MM-DD (UTC). Wird beim Monatslauf (1. Werktag) berücksichtigt.</small>
                 <div style={{ flex:1 }} />
-                <button className="btn" onClick={addHoliday}>+ Datum</button>
+                <button className="btn" onClick={onHolidayAdd}>+ Datum</button>
               </div>
               <div style={{ display:'grid', gap:8 }}>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:8, color:'var(--muted)', fontSize:12 }}>
@@ -258,13 +258,13 @@ export default function SettingsDialog({ onClose }) {
                 </div>
                 {holidaysForm.map((d, idx) => (
                   <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:8 }}>
-                    <input className="input" placeholder="YYYY-MM-DD" value={d} onChange={(e)=>updateHoliday(idx, e.target.value)} />
-                    <button className="btn" onClick={()=>removeHoliday(idx)}>Löschen</button>
+                    <input className="input" placeholder="YYYY-MM-DD" value={d} onChange={(e)=>onHolidayUpdate(idx, e.target.value)} />
+                    <button className="btn" onClick={()=>onHolidayRemove(idx)}>Löschen</button>
                   </div>
                 ))}
               </div>
               <div style={{ display:'flex', gap:8, marginTop:12 }}>
-                <button className="btn" onClick={saveHolidays}>Feiertage speichern</button>
+                <button className="btn" onClick={onHolidaysSave}>Feiertage speichern</button>
                 {holidaysMsg && <div style={{ color: holidaysMsg.startsWith('Fehler') ? 'crimson' : 'var(--muted)' }}>{holidaysMsg}</div>}
               </div>
             </div>
