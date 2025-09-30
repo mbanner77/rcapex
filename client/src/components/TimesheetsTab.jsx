@@ -21,6 +21,11 @@ export default function TimesheetsTab(){
   const [mailTo, setMailTo] = useState(() => localStorage.getItem('ts_mailTo') || '')
   const [onlyOffenders, setOnlyOffenders] = useState(() => localStorage.getItem('ts_onlyOffenders') === 'true')
   const [ratioThreshold, setRatioThreshold] = useState(() => Number(localStorage.getItem('ts_ratioThreshold') || 90)) // monthly threshold in %
+  const [rangeMode, setRangeMode] = useState(() => localStorage.getItem('ts_rangeMode') || 'auto') // 'auto' | 'custom' | 'week'
+  const [customFrom, setCustomFrom] = useState(() => localStorage.getItem('ts_customFrom') || '')
+  const [customTo, setCustomTo] = useState(() => localStorage.getItem('ts_customTo') || '')
+  const [isoWeek, setIsoWeek] = useState(() => localStorage.getItem('ts_isoWeek') || '')
+  const [isoYear, setIsoYear] = useState(() => localStorage.getItem('ts_isoYear') || new Date().getFullYear().toString())
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -33,14 +38,22 @@ export default function TimesheetsTab(){
     async function load(){
       setLoading(true); setError('')
       try{
-        const r = await fetchTimesheetsReport({ unit, mode, hoursPerDay })
+        const params = { unit, mode, hoursPerDay }
+        if (rangeMode === 'custom' && customFrom && customTo) {
+          params.datum_von = customFrom
+          params.datum_bis = customTo
+        } else if (rangeMode === 'week' && isoWeek) {
+          params.isoWeek = isoWeek
+          params.isoYear = isoYear
+        }
+        const r = await fetchTimesheetsReport(params)
         if (!cancelled) setData({ rows: r.rows||[], offenders: r.offenders||[], range: r.range||{} })
       }catch(e){ if(!cancelled) setError(e?.response?.data?.message || e.message) }
       finally{ if(!cancelled) setLoading(false) }
     }
     load()
     return () => { cancelled = true }
-  }, [unit, mode, hoursPerDay])
+  }, [unit, mode, hoursPerDay, rangeMode, customFrom, customTo, isoWeek, isoYear])
 
   useEffect(() => { localStorage.setItem('ts_unit', unit) }, [unit])
   useEffect(() => { localStorage.setItem('ts_mode', mode) }, [mode])
@@ -48,6 +61,11 @@ export default function TimesheetsTab(){
   useEffect(() => { localStorage.setItem('ts_mailTo', mailTo) }, [mailTo])
   useEffect(() => { localStorage.setItem('ts_onlyOffenders', String(!!onlyOffenders)) }, [onlyOffenders])
   useEffect(() => { localStorage.setItem('ts_ratioThreshold', String(ratioThreshold)) }, [ratioThreshold])
+  useEffect(() => { localStorage.setItem('ts_rangeMode', rangeMode) }, [rangeMode])
+  useEffect(() => { localStorage.setItem('ts_customFrom', customFrom) }, [customFrom])
+  useEffect(() => { localStorage.setItem('ts_customTo', customTo) }, [customTo])
+  useEffect(() => { localStorage.setItem('ts_isoWeek', isoWeek) }, [isoWeek])
+  useEffect(() => { localStorage.setItem('ts_isoYear', isoYear) }, [isoYear])
 
   useEffect(() => {
     let cancelled = false
@@ -101,13 +119,28 @@ export default function TimesheetsTab(){
     const to = (mailTo || mailDefaults.defaultRecipient || '').trim()
     if (!to){ alert('Bitte Empfänger angeben.'); return }
     try{
-      await runTimesheetsWatchdog({ unit, mode, hoursPerDay, to })
+      const payload = { unit, mode, hoursPerDay, to }
+      if (rangeMode === 'custom' && customFrom && customTo) {
+        payload.datum_von = customFrom
+        payload.datum_bis = customTo
+      } else if (rangeMode === 'week' && isoWeek) {
+        payload.isoWeek = isoWeek
+        payload.isoYear = isoYear
+      }
+      await runTimesheetsWatchdog(payload)
       alert('Report-Mail wurde gesendet.')
     }catch(e){ alert('Fehler: ' + (e?.response?.data?.message || e.message)) }
   }
 
   function preview(){
     const params = new URLSearchParams({ unit, mode, hoursPerDay: String(hoursPerDay) })
+    if (rangeMode === 'custom' && customFrom && customTo) {
+      params.set('datum_von', customFrom)
+      params.set('datum_bis', customTo)
+    } else if (rangeMode === 'week' && isoWeek) {
+      params.set('isoWeek', isoWeek)
+      params.set('isoYear', isoYear)
+    }
     const url = `/api/watchdogs/timesheets/preview-page?${params.toString()}`
     window.open(url, '_blank', 'noreferrer')
   }
@@ -162,6 +195,31 @@ export default function TimesheetsTab(){
           </select>
           <label style={{ color:'var(--muted)', fontSize:12 }}>h/Tag</label>
           <input className="input" type="number" min={1} max={12} value={hoursPerDay} onChange={(e)=>setHoursPerDay(Math.max(1, Math.min(12, Number(e.target.value))))} style={{ width:100 }} />
+        </div>
+        <div className="toolbar" style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
+          <label style={{ color:'var(--muted)', fontSize:12 }}>Zeitraum</label>
+          <select className="input" value={rangeMode} onChange={(e)=>setRangeMode(e.target.value)} style={{ width:140 }}>
+            <option value="auto">Automatisch</option>
+            <option value="custom">Benutzerdefiniert</option>
+            <option value="week">KW</option>
+          </select>
+          {rangeMode === 'custom' && (
+            <>
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Von</label>
+              <input className="input" type="date" value={customFrom} onChange={(e)=>setCustomFrom(e.target.value)} style={{ width:160 }} />
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Bis</label>
+              <input className="input" type="date" value={customTo} onChange={(e)=>setCustomTo(e.target.value)} style={{ width:160 }} />
+            </>
+          )}
+          {rangeMode === 'week' && (
+            <>
+              <label style={{ color:'var(--muted)', fontSize:12 }}>KW</label>
+              <input className="input" type="number" min={1} max={53} value={isoWeek} onChange={(e)=>setIsoWeek(e.target.value)} style={{ width:80 }} placeholder="KW" />
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Jahr</label>
+              <input className="input" type="number" min={2020} max={2030} value={isoYear} onChange={(e)=>setIsoYear(e.target.value)} style={{ width:100 }} placeholder="Jahr" />
+            </>
+          )}
+          <div style={{ flex:1 }} />
           <input className="input" placeholder="Suche Mitarbeiter" value={query} onChange={(e)=>setQuery(e.target.value)} style={{ width:240 }} />
           <label style={{ display:'flex', alignItems:'center', gap:6 }}>
             <input type="checkbox" checked={onlyOffenders} onChange={(e)=>setOnlyOffenders(e.target.checked)} />

@@ -40,6 +40,17 @@ const APEX_PASSWORD = (process.env.APEX_PASSWORD || '').trim();
 const APEX_OVERRIDES = { username: '', password: '' };
 // Persisted mapping for internal projects (server-wide)
 let PERSISTED_MAPPING = { projects: [], tokens: [] }
+
+// Helper: get Monday (UTC) for ISO week/year
+function isoWeekToDateUTC(isoYear, isoWeek){
+  // Jan 4 is always in week 1
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4, 0, 0, 0))
+  const dayOfWeek = jan4.getUTCDay() || 7 // 1..7 (Mon..Sun)
+  const mondayWeek1 = new Date(Date.UTC(isoYear, 0, 4 - (dayOfWeek - 1), 0, 0, 0))
+  const d = new Date(mondayWeek1)
+  d.setUTCDate(d.getUTCDate() + (isoWeek - 1) * 7)
+  return d
+}
 let HOLIDAYS = []
 
 // Ensure there is always a default scheduled watchdog if none exists yet
@@ -515,10 +526,20 @@ async function computeTimesheetTotals({ datum_von, datum_bis, unit }){
   return { byEmp, empSet }
 }
 
-async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients = [], hoursPerDay = 8 }){
+async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients = [], hoursPerDay = 8, datum_von, datum_bis, isoWeek, isoYear }){
   const now = new Date()
   let range
-  if (mode === 'monthly'){
+  // Range override via explicit dates
+  if (datum_von && datum_bis) {
+    range = { datum_von: String(datum_von), datum_bis: String(datum_bis) }
+  } else if (isoWeek) {
+    // Compute ISO week range (Mon-Sun, UTC)
+    const y = Number(isoYear || now.getUTCFullYear())
+    const w = Number(isoWeek)
+    const monday = isoWeekToDateUTC(y, w)
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate()+6, 23,59,59))
+    range = { datum_von: toIsoStringUTC(monday), datum_bis: toIsoStringUTC(sunday) }
+  } else if (mode === 'monthly'){
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()-1, 1, 0,0,0))
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23,59,59))
     range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
@@ -587,7 +608,11 @@ app.get('/api/watchdogs/timesheets/report', async (req, res) => {
     const unit = req.query.unit || 'ALL'
     const mode = (req.query.mode === 'monthly') ? 'monthly' : 'weekly'
     const hoursPerDay = Number(req.query.hoursPerDay || 8)
-    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [] })
+    const datum_von = req.query.datum_von || undefined
+    const datum_bis = req.query.datum_bis || undefined
+    const isoWeek = req.query.isoWeek ? Number(req.query.isoWeek) : undefined
+    const isoYear = req.query.isoYear ? Number(req.query.isoYear) : undefined
+    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [], datum_von, datum_bis, isoWeek, isoYear })
     res.json({ ok:true, ...result })
   }catch(e){
     const status = e.response?.status || 500;
@@ -598,10 +623,10 @@ app.get('/api/watchdogs/timesheets/report', async (req, res) => {
 // Send
 app.post('/api/watchdogs/timesheets/run', async (req, res) => {
   try{
-    const { unit = 'ALL', mode = 'weekly', hoursPerDay = 8, to } = req.body || {}
+    const { unit = 'ALL', mode = 'weekly', hoursPerDay = 8, to, datum_von, datum_bis, isoWeek, isoYear } = req.body || {}
     const recipients = Array.isArray(to) ? to : (to ? [to] : [])
     if (recipients.length === 0) return res.status(400).json({ error:true, message:'to required' })
-    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients })
+    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients, datum_von, datum_bis, isoWeek, isoYear })
     res.json({ ok:true, ...result })
   }catch(e){
     const status = e.response?.status || 500;
@@ -616,7 +641,11 @@ app.get('/api/watchdogs/timesheets/preview-page', async (req, res) => {
     const unit = req.query.unit || 'ALL'
     const mode = (req.query.mode === 'monthly') ? 'monthly' : 'weekly'
     const hoursPerDay = Number(req.query.hoursPerDay || 8)
-    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [] })
+    const datum_von = req.query.datum_von || undefined
+    const datum_bis = req.query.datum_bis || undefined
+    const isoWeek = req.query.isoWeek ? Number(req.query.isoWeek) : undefined
+    const isoYear = req.query.isoYear ? Number(req.query.isoYear) : undefined
+    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [], datum_von, datum_bis, isoWeek, isoYear })
     const rows = Array.isArray(result?.rows) ? result.rows : []
     const rc = (s)=> s==='bad'? 'background:rgba(239,68,68,0.12)' : (s==='warn' ? 'background:rgba(250,204,21,0.12)' : 'background:rgba(34,197,94,0.10)')
     const html = `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Erfassungs-Kontrolle</title>

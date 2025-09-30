@@ -152,12 +152,13 @@ export default function InternalMappingDialog({ onClose }){
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e)=>e.stopPropagation()} style={{ maxWidth: 720 }}>
+      <div className="modal modal-wide" onClick={(e)=>e.stopPropagation()} style={{ padding: 16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <h3 style={{ margin:0 }}>Interne Projekte – Mapping</h3>
           <div style={{ flex:1 }} />
           <button className="btn" onClick={onClose}>Schließen</button>
         </div>
+        <div className="modal-scroll">
         <div className="panel" style={{ padding: 12, marginTop: 12 }}>
           <div style={{ color:'var(--muted)', marginBottom:8 }}>
             Definiere, welche Projekte als INTERN gelten. Zwei Mechanismen:
@@ -238,8 +239,8 @@ export default function InternalMappingDialog({ onClose }){
               <button className="btn" onClick={()=>addRule({ type:'legacy_int_prefix' })}>+ Legacy INT prefix</button>
               <button className="btn" onClick={()=>addRule({ type:'legacy_int_token' })}>+ Legacy INT token</button>
             </div>
-            <div style={{ overflowX:'auto' }}>
-              <table className="table" style={{ minWidth: 760 }}>
+            <div style={{ overflowX:'auto', paddingBottom: 8 }}>
+              <table className="table sticky" style={{ minWidth: 760 }}>
                 <thead>
                   <tr>
                     <th>Aktiv</th>
@@ -307,6 +308,7 @@ export default function InternalMappingDialog({ onClose }){
               )}
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>
