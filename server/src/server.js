@@ -41,6 +41,15 @@ const APEX_OVERRIDES = { username: '', password: '' };
 // Persisted mapping for internal projects (server-wide)
 let PERSISTED_MAPPING = { projects: [], tokens: [] }
 // Timesheet exceptions: users to exclude or with part-time hours
+// Default exceptions that are always included
+const DEFAULT_EXCEPTIONS = [
+  { name: 'RCC_PAUSCHAL_DEVELOPMENT WEB', exclude: true, partTimeHours: null },
+  { name: 'RC156_S.ARENAS BEEGER 19.02.24', exclude: true, partTimeHours: null },
+  { name: 'RC225_O.DALINGER-28.02.2025', exclude: true, partTimeHours: null },
+  { name: 'RCC_PAUSCHAL_DEVELOPMENT ABAP', exclude: true, partTimeHours: null },
+  { name: 'RCC_PAUSCHAL_INTEGRATION', exclude: true, partTimeHours: null },
+  { name: 'RCC_PAUSCHAL_BASIS', exclude: true, partTimeHours: null }
+]
 let TIMESHEET_EXCEPTIONS = [] // [{ name: 'Max Mustermann', exclude: true, partTimeHours: null }, ...]
 
 // Helper: get Monday (UTC) for ISO week/year
@@ -134,14 +143,20 @@ async function loadPersistedApex() {
     if (Array.isArray(json?.holidays)) HOLIDAYS = json.holidays.filter(x=>typeof x==="string").map(s=>s.slice(0,10))
     }
     // Load timesheet exceptions
-    if (Array.isArray(json?.timesheetExceptions)) {
+    if (Array.isArray(json?.timesheetExceptions) && json.timesheetExceptions.length > 0) {
       TIMESHEET_EXCEPTIONS = json.timesheetExceptions.map(ex => ({
         name: String(ex.name || ''),
         exclude: !!ex.exclude,
         partTimeHours: ex.partTimeHours != null ? Number(ex.partTimeHours) : null
       })).filter(ex => ex.name)
+    } else {
+      // Use default exceptions if none are saved
+      TIMESHEET_EXCEPTIONS = [...DEFAULT_EXCEPTIONS]
     }
-  } catch (_) { /* ignore */ }
+  } catch (_) { 
+    // If config file doesn't exist, use defaults
+    TIMESHEET_EXCEPTIONS = [...DEFAULT_EXCEPTIONS]
+  }
 }
 
 // ---------------- Utilities: time and project helpers ----------------
