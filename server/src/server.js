@@ -426,7 +426,13 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
     if (ta!==tb) return ta-tb
     return String(a.mitarbeiter||'').localeCompare(String(b.mitarbeiter||''))
   })
-  let html = `<p>Watchdog (Unit ${unit||'ALL'}): letzte ${weeksBack} Woche(n)</p>`
+  // Build title based on mode
+  const monthNames = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+  const title = (month && monthYear) 
+    ? `${monthNames[Number(month)]} ${monthYear}`
+    : `letzte ${weeksBack} Woche(n)`
+  
+  let html = `<p>Watchdog (Unit ${unit||'ALL'}): ${title}</p>`
   html += `<ul>`
   if (useInternalShare) html += `<li>Interner Anteil > ${pctFmt(threshold||0.2)}</li>`
   if (useZeroLastWeek) html += `<li>Keine Zeiten letzte Woche (${lastWeekId})</li>`
