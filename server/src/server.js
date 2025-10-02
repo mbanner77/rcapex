@@ -524,15 +524,25 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
 // Rules:
 // - Weekly: Last calendar week (Mon–Fri). If employee has 0h total -> flag (Ampel Rot)
 // - Monthly: Last calendar month. Expected = workingDaysInMonth × hoursPerDay (default 8). If total < expected -> flag
-// Working days are Mon..Fri (ISO 1..5), no holiday calendar.
+// Working days are Mon..Fri (ISO 1..5), excluding holidays from HOLIDAYS list.
 
 function workingDaysBetween(start, end){
   const s = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
   const e = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+  
+  // Build set of holiday dates (YYYY-MM-DD format) for quick lookup
+  const holidaySet = new Set(HOLIDAYS.map(h => String(h).slice(0, 10)))
+  
   let days = 0
   for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate()+1)){
     const wd = d.getUTCDay() || 7 // 1..7, Mon..Sun
-    if (wd >= 1 && wd <= 5) days++
+    if (wd >= 1 && wd <= 5) { // Mon-Fri
+      // Check if this date is a holiday
+      const dateStr = d.toISOString().slice(0, 10)
+      if (!holidaySet.has(dateStr)) {
+        days++
+      }
+    }
   }
   return days
 }
@@ -613,6 +623,11 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
       if (status !== 'good') offenders.push(row)
     }
   } else {
+    // Weekly mode: calculate working days in the week (considering holidays)
+    const s = new Date(range.datum_von)
+    const e = new Date(range.datum_bis)
+    const workingDaysInWeek = workingDaysBetween(s, e)
+    
     for (const name of empSet){
       // Check if user should be excluded
       const exception = exceptionMap.get(name)
@@ -621,7 +636,7 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
       const tot = Number(byEmp.get(name)||0)
       // Use part-time hours if defined, otherwise use default hoursPerDay
       const dailyHours = exception?.partTimeHours != null ? exception.partTimeHours : Number(hoursPerDay||8)
-      const expected = 5 * dailyHours
+      const expected = workingDaysInWeek * dailyHours
       const ratio = expected>0 ? tot/expected : 1
       let status = 'good'
       if (tot <= 0) status = 'bad'
