@@ -342,15 +342,26 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
 }
 
 // ---------------- Internal time watchdog ----------------
-async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or', mapping = {} }){
+async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or', mapping = {}, month, monthYear }){
   // build range for last calendar week; allow weeksBack>1 by expanding range
   const now = new Date()
-  // end at last week's Sunday 23:59:59
-  const day = now.getUTCDay() || 7
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day, 23, 59, 59))
-  const start = new Date(end)
-  start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6)) // go back weeksBack weeks to Monday
-  const range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
+  let range
+  
+  if (month && monthYear) {
+    // Compute specific month range
+    const y = Number(monthYear)
+    const m = Number(month) - 1 // JavaScript months are 0-indexed
+    const start = new Date(Date.UTC(y, m, 1, 0, 0, 0))
+    const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59)) // Last day of month
+    range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
+  } else {
+    // end at last week's Sunday 23:59:59
+    const day = now.getUTCDay() || 7
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day, 23, 59, 59))
+    const start = new Date(end)
+    start.setUTCDate(start.getUTCDate() - ((weeksBack * 7) - 6)) // go back weeksBack weeks to Monday
+    range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
+  }
   const rows = await computeWeeklyInternalShares({ unit, datum_von: range.datum_von, datum_bis: range.datum_bis, mapping })
   // Index data for additional rules
   const byWeek = new Map()
@@ -454,8 +465,10 @@ app.get('/api/watchdogs/internal/report', async (req, res) => {
     const useMinTotal = String(req.query.useMinTotal ?? 'false') === 'true'
     const minTotalHours = Number(req.query.minTotalHours || 0)
     const combine = (req.query.combine === 'and') ? 'and' : 'or'
+    const month = req.query.month ? Number(req.query.month) : undefined
+    const monthYear = req.query.monthYear ? Number(req.query.monthYear) : undefined
     const mapping = parseMappingFromReq(req)
-    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping })
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping, month, monthYear })
     res.json({ ok: true, ...result })
   } catch (e) {
     const status = e.response?.status || 500;
@@ -466,11 +479,11 @@ app.get('/api/watchdogs/internal/report', async (req, res) => {
 // POST: run watchdog and send email
 app.post('/api/watchdogs/internal/run', async (req, res) => {
   try {
-    const { unit = 'ALL', to, threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or' } = req.body || {}
+    const { unit = 'ALL', to, threshold = 0.2, weeksBack = 1, useInternalShare = true, useZeroLastWeek = true, useMinTotal = false, minTotalHours = 0, combine = 'or', month, monthYear } = req.body || {}
     const recipients = Array.isArray(to) ? to : (to ? [to] : [])
     if (recipients.length === 0) return res.status(400).json({ error: true, message: 'to required' })
     const mapping = parseMappingFromReq(req)
-    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping })
+    const result = await runInternalWatchdog({ unit, recipients, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping, month, monthYear })
     res.json({ ok: true, ...result })
   } catch (e) {
     const status = e.response?.status || 500;
@@ -490,8 +503,10 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
     const useMinTotal = String(req.query.useMinTotal ?? 'false') === 'true'
     const minTotalHours = Number(req.query.minTotalHours || 0)
     const combine = (req.query.combine === 'and') ? 'and' : 'or'
+    const month = req.query.month ? Number(req.query.month) : undefined
+    const monthYear = req.query.monthYear ? Number(req.query.monthYear) : undefined
     const mapping = parseMappingFromReq(req)
-    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping })
+    const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping, month, monthYear })
     const rows = Array.isArray(result?.offenders) ? result.offenders : []
     const reasonsTxt = (r)=> (Array.isArray(r?.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share (${(x.weeks||[]).join(',')})` : x.type).join(', ') : '')
     const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Watchdog Preview</title>

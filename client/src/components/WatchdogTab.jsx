@@ -8,11 +8,31 @@ function fmt(n){
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
 }
 
+// Get last month (month and year)
+function getLastMonth() {
+  const now = new Date()
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  return { month: lastMonth.getMonth() + 1, year: lastMonth.getFullYear() }
+}
+
 export default function WatchdogTab(){
   const [units, setUnits] = useState(() => getUnits())
   const [unit, setUnit] = useState(() => localStorage.getItem('wd_unit') || 'ALL')
   const [threshold, setThreshold] = useState(() => Number(localStorage.getItem('wd_threshold') || 0.2))
   const [weeksBack, setWeeksBack] = useState(() => Number(localStorage.getItem('wd_weeksBack') || 1))
+  const [rangeMode, setRangeMode] = useState(() => localStorage.getItem('wd_rangeMode') || 'weeks') // 'weeks' | 'month'
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const stored = localStorage.getItem('wd_selectedMonth')
+    if (stored) return stored
+    const lastMonth = getLastMonth()
+    return lastMonth.month.toString()
+  })
+  const [selectedMonthYear, setSelectedMonthYear] = useState(() => {
+    const stored = localStorage.getItem('wd_selectedMonthYear')
+    if (stored) return stored
+    const lastMonth = getLastMonth()
+    return lastMonth.year.toString()
+  })
   const [offendersOnly, setOffendersOnly] = useState(true)
   const [useInternalShare, setUseInternalShare] = useState(() => (localStorage.getItem('wd_useInternalShare') ?? 'true') !== 'false')
   const [useZeroLastWeek, setUseZeroLastWeek] = useState(() => (localStorage.getItem('wd_useZeroLastWeek') ?? 'true') !== 'false')
@@ -52,26 +72,38 @@ export default function WatchdogTab(){
     async function load(){
       setLoading(true); setError('')
       try{
-        const r = await fetchInternalWatchdogReport({ unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mappingProjects: (mapping.projects||[]), mappingTokens: (mapping.tokens||[]) })
+        const params = { unit, threshold, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mappingProjects: (mapping.projects||[]), mappingTokens: (mapping.tokens||[]) }
+        if (rangeMode === 'month') {
+          params.month = selectedMonth
+          params.monthYear = selectedMonthYear
+        } else {
+          params.weeksBack = weeksBack
+        }
+        const r = await fetchInternalWatchdogReport(params)
         if (!cancelled) setData({ rows: r.rows||[], offenders: r.offenders||[], range: r.range||{} })
       }catch(e){ if(!cancelled) setError(e?.response?.data?.message || e.message) }
       finally{ if(!cancelled) setLoading(false) }
     }
     load()
     return () => { cancelled = true }
-  }, [unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping])
+  }, [unit, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping, rangeMode, selectedMonth, selectedMonthYear])
 
   function buildPreviewUrl(){
     const params = new URLSearchParams({
       unit,
       threshold: String(threshold),
-      weeksBack: String(weeksBack),
       useInternalShare: String(useInternalShare),
       useZeroLastWeek: String(useZeroLastWeek),
       useMinTotal: String(useMinTotal),
       minTotalHours: String(minTotalHours),
       combine
     })
+    if (rangeMode === 'month') {
+      params.set('month', selectedMonth)
+      params.set('monthYear', selectedMonthYear)
+    } else {
+      params.set('weeksBack', String(weeksBack))
+    }
     // pass mapping as CSV lists for server preview (if supported)
     const p = (mapping.projects||[]).filter(Boolean).join(',')
     const t = (mapping.tokens||[]).filter(Boolean).join(',')
@@ -114,6 +146,9 @@ export default function WatchdogTab(){
   useEffect(() => { localStorage.setItem('wd_unit', unit) }, [unit])
   useEffect(() => { localStorage.setItem('wd_threshold', String(threshold)) }, [threshold])
   useEffect(() => { localStorage.setItem('wd_weeksBack', String(weeksBack)) }, [weeksBack])
+  useEffect(() => { localStorage.setItem('wd_rangeMode', rangeMode) }, [rangeMode])
+  useEffect(() => { localStorage.setItem('wd_selectedMonth', selectedMonth) }, [selectedMonth])
+  useEffect(() => { localStorage.setItem('wd_selectedMonthYear', selectedMonthYear) }, [selectedMonthYear])
   useEffect(() => { localStorage.setItem('wd_useInternalShare', String(useInternalShare)) }, [useInternalShare])
   useEffect(() => { localStorage.setItem('wd_useZeroLastWeek', String(useZeroLastWeek)) }, [useZeroLastWeek])
   useEffect(() => { localStorage.setItem('wd_useMinTotal', String(useMinTotal)) }, [useMinTotal])
@@ -170,7 +205,14 @@ export default function WatchdogTab(){
     let to = prompt('Empfänger E-Mail (Kommagetrennt):', mailDefaults.defaultRecipient || '')
     if (!to) return
     try{
-      await runInternalWatchdog({ unit, to, threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mappingProjects: (mapping.projects||[]), mappingTokens: (mapping.tokens||[]) })
+      const payload = { unit, to, threshold, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mappingProjects: (mapping.projects||[]), mappingTokens: (mapping.tokens||[]) }
+      if (rangeMode === 'month') {
+        payload.month = selectedMonth
+        payload.monthYear = selectedMonthYear
+      } else {
+        payload.weeksBack = weeksBack
+      }
+      await runInternalWatchdog(payload)
       alert('Watchdog-Mail wurde gesendet.')
     }catch(e){ alert('Fehler: ' + (e?.response?.data?.message || e.message)) }
   }
@@ -194,8 +236,33 @@ export default function WatchdogTab(){
           </select>
           <label style={{ color:'var(--muted)', fontSize:12 }}>Schwellwert</label>
           <input className="input" type="number" step="0.05" min={0} max={1} value={threshold} onChange={(e)=>setThreshold(Math.max(0, Math.min(1, Number(e.target.value))))} style={{ width:90 }} />
-          <label style={{ color:'var(--muted)', fontSize:12 }}>Wochen zurück</label>
-          <input className="input" type="number" min={1} max={12} value={weeksBack} onChange={(e)=>setWeeksBack(Math.max(1, Math.min(12, Number(e.target.value))))} style={{ width:90 }} />
+          <label style={{ color:'var(--muted)', fontSize:12 }}>Zeitraum</label>
+          <select className="input" value={rangeMode} onChange={(e)=>setRangeMode(e.target.value)} style={{ width:120 }}>
+            <option value="weeks">Wochen zurück</option>
+            <option value="month">Monat</option>
+          </select>
+          {rangeMode === 'weeks' && (
+            <input className="input" type="number" min={1} max={12} value={weeksBack} onChange={(e)=>setWeeksBack(Math.max(1, Math.min(12, Number(e.target.value))))} style={{ width:90 }} />
+          )}
+          {rangeMode === 'month' && (
+            <>
+              <select className="input" value={selectedMonth} onChange={(e)=>setSelectedMonth(e.target.value)} style={{ width:120 }}>
+                <option value="1">Januar</option>
+                <option value="2">Februar</option>
+                <option value="3">März</option>
+                <option value="4">April</option>
+                <option value="5">Mai</option>
+                <option value="6">Juni</option>
+                <option value="7">Juli</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">Oktober</option>
+                <option value="11">November</option>
+                <option value="12">Dezember</option>
+              </select>
+              <input className="input" type="number" min={2020} max={2030} value={selectedMonthYear} onChange={(e)=>setSelectedMonthYear(e.target.value)} style={{ width:100 }} placeholder="Jahr" />
+            </>
+          )}
           <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={useInternalShare} onChange={(e)=>setUseInternalShare(e.target.checked)} style={{ marginRight:6 }} />Interner Anteil</label>
           <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={useZeroLastWeek} onChange={(e)=>setUseZeroLastWeek(e.target.checked)} style={{ marginRight:6 }} />0h letzte Woche</label>
           <label style={{ color:'var(--muted)', fontSize:12 }}><input type="checkbox" checked={useMinTotal} onChange={(e)=>setUseMinTotal(e.target.checked)} style={{ marginRight:6 }} />Min. Gesamt (h)</label>
