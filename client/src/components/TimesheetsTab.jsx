@@ -6,6 +6,34 @@ function fmt(n){
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
 }
 
+// Helper function to get ISO week number and year
+function getISOWeek(date) {
+  const target = new Date(date.valueOf())
+  const dayNr = (date.getDay() + 6) % 7
+  target.setDate(target.getDate() - dayNr + 3)
+  const firstThursday = target.valueOf()
+  target.setMonth(0, 1)
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7)
+  }
+  const weekNumber = 1 + Math.ceil((firstThursday - target) / 604800000)
+  return { week: weekNumber, year: target.getFullYear() }
+}
+
+// Get last week's ISO week number (current week - 1)
+function getLastWeek() {
+  const now = new Date()
+  const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  return getISOWeek(lastWeek)
+}
+
+// Get last month (month and year)
+function getLastMonth() {
+  const now = new Date()
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  return { month: lastMonth.getMonth() + 1, year: lastMonth.getFullYear() }
+}
+
 export default function TimesheetsTab(){
   const [units, setUnits] = useState(() => getUnits())
   const [unit, setUnit] = useState(() => localStorage.getItem('ts_unit') || 'ALL')
@@ -21,11 +49,33 @@ export default function TimesheetsTab(){
   const [mailTo, setMailTo] = useState(() => localStorage.getItem('ts_mailTo') || '')
   const [onlyOffenders, setOnlyOffenders] = useState(() => localStorage.getItem('ts_onlyOffenders') === 'true')
   const [ratioThreshold, setRatioThreshold] = useState(() => Number(localStorage.getItem('ts_ratioThreshold') || 90)) // monthly threshold in %
-  const [rangeMode, setRangeMode] = useState(() => localStorage.getItem('ts_rangeMode') || 'auto') // 'auto' | 'custom' | 'week'
+  const [rangeMode, setRangeMode] = useState(() => localStorage.getItem('ts_rangeMode') || 'auto') // 'auto' | 'custom' | 'week' | 'month'
   const [customFrom, setCustomFrom] = useState(() => localStorage.getItem('ts_customFrom') || '')
   const [customTo, setCustomTo] = useState(() => localStorage.getItem('ts_customTo') || '')
-  const [isoWeek, setIsoWeek] = useState(() => localStorage.getItem('ts_isoWeek') || '')
-  const [isoYear, setIsoYear] = useState(() => localStorage.getItem('ts_isoYear') || new Date().getFullYear().toString())
+  const [isoWeek, setIsoWeek] = useState(() => {
+    const stored = localStorage.getItem('ts_isoWeek')
+    if (stored) return stored
+    const lastWeek = getLastWeek()
+    return lastWeek.week.toString()
+  })
+  const [isoYear, setIsoYear] = useState(() => {
+    const stored = localStorage.getItem('ts_isoYear')
+    if (stored) return stored
+    const lastWeek = getLastWeek()
+    return lastWeek.year.toString()
+  })
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const stored = localStorage.getItem('ts_selectedMonth')
+    if (stored) return stored
+    const lastMonth = getLastMonth()
+    return lastMonth.month.toString()
+  })
+  const [selectedMonthYear, setSelectedMonthYear] = useState(() => {
+    const stored = localStorage.getItem('ts_selectedMonthYear')
+    if (stored) return stored
+    const lastMonth = getLastMonth()
+    return lastMonth.year.toString()
+  })
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
@@ -45,6 +95,9 @@ export default function TimesheetsTab(){
         } else if (rangeMode === 'week' && isoWeek) {
           params.isoWeek = isoWeek
           params.isoYear = isoYear
+        } else if (rangeMode === 'month' && selectedMonth && selectedMonthYear) {
+          params.month = selectedMonth
+          params.monthYear = selectedMonthYear
         }
         const r = await fetchTimesheetsReport(params)
         if (!cancelled) setData({ rows: r.rows||[], offenders: r.offenders||[], range: r.range||{} })
@@ -53,7 +106,7 @@ export default function TimesheetsTab(){
     }
     load()
     return () => { cancelled = true }
-  }, [unit, mode, hoursPerDay, rangeMode, customFrom, customTo, isoWeek, isoYear])
+  }, [unit, mode, hoursPerDay, rangeMode, customFrom, customTo, isoWeek, isoYear, selectedMonth, selectedMonthYear])
 
   useEffect(() => { localStorage.setItem('ts_unit', unit) }, [unit])
   useEffect(() => { localStorage.setItem('ts_mode', mode) }, [mode])
@@ -66,6 +119,8 @@ export default function TimesheetsTab(){
   useEffect(() => { localStorage.setItem('ts_customTo', customTo) }, [customTo])
   useEffect(() => { localStorage.setItem('ts_isoWeek', isoWeek) }, [isoWeek])
   useEffect(() => { localStorage.setItem('ts_isoYear', isoYear) }, [isoYear])
+  useEffect(() => { localStorage.setItem('ts_selectedMonth', selectedMonth) }, [selectedMonth])
+  useEffect(() => { localStorage.setItem('ts_selectedMonthYear', selectedMonthYear) }, [selectedMonthYear])
 
   useEffect(() => {
     let cancelled = false
@@ -126,6 +181,9 @@ export default function TimesheetsTab(){
       } else if (rangeMode === 'week' && isoWeek) {
         payload.isoWeek = isoWeek
         payload.isoYear = isoYear
+      } else if (rangeMode === 'month' && selectedMonth && selectedMonthYear) {
+        payload.month = selectedMonth
+        payload.monthYear = selectedMonthYear
       }
       await runTimesheetsWatchdog(payload)
       alert('Report-Mail wurde gesendet.')
@@ -140,6 +198,9 @@ export default function TimesheetsTab(){
     } else if (rangeMode === 'week' && isoWeek) {
       params.set('isoWeek', isoWeek)
       params.set('isoYear', isoYear)
+    } else if (rangeMode === 'month' && selectedMonth && selectedMonthYear) {
+      params.set('month', selectedMonth)
+      params.set('monthYear', selectedMonthYear)
     }
     const url = `/api/watchdogs/timesheets/preview-page?${params.toString()}`
     window.open(url, '_blank', 'noreferrer')
@@ -202,6 +263,7 @@ export default function TimesheetsTab(){
             <option value="auto">Automatisch</option>
             <option value="custom">Benutzerdefiniert</option>
             <option value="week">KW</option>
+            <option value="month">Monat</option>
           </select>
           {rangeMode === 'custom' && (
             <>
@@ -217,6 +279,27 @@ export default function TimesheetsTab(){
               <input className="input" type="number" min={1} max={53} value={isoWeek} onChange={(e)=>setIsoWeek(e.target.value)} style={{ width:80 }} placeholder="KW" />
               <label style={{ color:'var(--muted)', fontSize:12 }}>Jahr</label>
               <input className="input" type="number" min={2020} max={2030} value={isoYear} onChange={(e)=>setIsoYear(e.target.value)} style={{ width:100 }} placeholder="Jahr" />
+            </>
+          )}
+          {rangeMode === 'month' && (
+            <>
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Monat</label>
+              <select className="input" value={selectedMonth} onChange={(e)=>setSelectedMonth(e.target.value)} style={{ width:120 }}>
+                <option value="1">Januar</option>
+                <option value="2">Februar</option>
+                <option value="3">März</option>
+                <option value="4">April</option>
+                <option value="5">Mai</option>
+                <option value="6">Juni</option>
+                <option value="7">Juli</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">Oktober</option>
+                <option value="11">November</option>
+                <option value="12">Dezember</option>
+              </select>
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Jahr</label>
+              <input className="input" type="number" min={2020} max={2030} value={selectedMonthYear} onChange={(e)=>setSelectedMonthYear(e.target.value)} style={{ width:100 }} placeholder="Jahr" />
             </>
           )}
           <div style={{ flex:1 }} />

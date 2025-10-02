@@ -526,7 +526,7 @@ async function computeTimesheetTotals({ datum_von, datum_bis, unit }){
   return { byEmp, empSet }
 }
 
-async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients = [], hoursPerDay = 8, datum_von, datum_bis, isoWeek, isoYear }){
+async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients = [], hoursPerDay = 8, datum_von, datum_bis, isoWeek, isoYear, month, monthYear }){
   const now = new Date()
   let range
   // Range override via explicit dates
@@ -539,6 +539,13 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
     const monday = isoWeekToDateUTC(y, w)
     const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate()+6, 23,59,59))
     range = { datum_von: toIsoStringUTC(monday), datum_bis: toIsoStringUTC(sunday) }
+  } else if (month && monthYear) {
+    // Compute specific month range
+    const y = Number(monthYear)
+    const m = Number(month) - 1 // JavaScript months are 0-indexed
+    const start = new Date(Date.UTC(y, m, 1, 0, 0, 0))
+    const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59)) // Last day of month
+    range = { datum_von: toIsoStringUTC(start), datum_bis: toIsoStringUTC(end) }
   } else if (mode === 'monthly'){
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()-1, 1, 0,0,0))
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23,59,59))
@@ -612,7 +619,9 @@ app.get('/api/watchdogs/timesheets/report', async (req, res) => {
     const datum_bis = req.query.datum_bis || undefined
     const isoWeek = req.query.isoWeek ? Number(req.query.isoWeek) : undefined
     const isoYear = req.query.isoYear ? Number(req.query.isoYear) : undefined
-    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [], datum_von, datum_bis, isoWeek, isoYear })
+    const month = req.query.month ? Number(req.query.month) : undefined
+    const monthYear = req.query.monthYear ? Number(req.query.monthYear) : undefined
+    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [], datum_von, datum_bis, isoWeek, isoYear, month, monthYear })
     res.json({ ok:true, ...result })
   }catch(e){
     const status = e.response?.status || 500;
@@ -623,10 +632,10 @@ app.get('/api/watchdogs/timesheets/report', async (req, res) => {
 // Send
 app.post('/api/watchdogs/timesheets/run', async (req, res) => {
   try{
-    const { unit = 'ALL', mode = 'weekly', hoursPerDay = 8, to, datum_von, datum_bis, isoWeek, isoYear } = req.body || {}
+    const { unit = 'ALL', mode = 'weekly', hoursPerDay = 8, to, datum_von, datum_bis, isoWeek, isoYear, month, monthYear } = req.body || {}
     const recipients = Array.isArray(to) ? to : (to ? [to] : [])
     if (recipients.length === 0) return res.status(400).json({ error:true, message:'to required' })
-    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients, datum_von, datum_bis, isoWeek, isoYear })
+    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients, datum_von, datum_bis, isoWeek, isoYear, month, monthYear })
     res.json({ ok:true, ...result })
   }catch(e){
     const status = e.response?.status || 500;
@@ -645,7 +654,9 @@ app.get('/api/watchdogs/timesheets/preview-page', async (req, res) => {
     const datum_bis = req.query.datum_bis || undefined
     const isoWeek = req.query.isoWeek ? Number(req.query.isoWeek) : undefined
     const isoYear = req.query.isoYear ? Number(req.query.isoYear) : undefined
-    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [], datum_von, datum_bis, isoWeek, isoYear })
+    const month = req.query.month ? Number(req.query.month) : undefined
+    const monthYear = req.query.monthYear ? Number(req.query.monthYear) : undefined
+    const result = await runTimesheetsWatchdog({ unit, mode, hoursPerDay, recipients: [], datum_von, datum_bis, isoWeek, isoYear, month, monthYear })
     const rows = Array.isArray(result?.rows) ? result.rows : []
     const rc = (s)=> s==='bad'? 'background:rgba(239,68,68,0.12)' : (s==='warn' ? 'background:rgba(250,204,21,0.12)' : 'background:rgba(34,197,94,0.10)')
     const html = `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Erfassungs-Kontrolle</title>
