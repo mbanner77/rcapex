@@ -309,7 +309,7 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
     if (!val) continue
     if (!weekEmp.has(wid)) weekEmp.set(wid, new Map())
     const em = weekEmp.get(wid)
-    if (!em.has(emp)) em.set(emp, { total: 0, internal: 0, kunde: '', leistungsart: '', projektcode: '' })
+    if (!em.has(emp)) em.set(emp, { total: 0, internal: 0, billable: 0, kunde: '', leistungsart: '', projektcode: '' })
     const obj = em.get(emp)
     
     // IMPORTANT: total includes ALL hours (N + J), not just non-J
@@ -317,7 +317,10 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
     
     // Check if this is an internal project (N-prefix or INT projects, but NOT J-prefix)
     const isExcluded = isExcludedByLeistungsart(r)
-    if (!isExcluded) {
+    if (isExcluded) {
+      // J-prefix = billable hours
+      obj.billable += val
+    } else {
       const isInt = isInternalProject(r, mapping)
       if (isInt) {
         obj.internal += val
@@ -336,9 +339,9 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
   // Flatten rows
   const rows = []
   for (const [wid, em] of weekEmp) {
-    for (const [emp, { total, internal }] of em) {
+    for (const [emp, { total, internal, billable }] of em) {
       const pct = total > 0 ? (internal / total) : 0
-      rows.push({ week: wid, mitarbeiter: emp, total, internal, pct, kunde: (em.get(emp)?.kunde||''), leistungsart: (em.get(emp)?.leistungsart||''), projektcode: (em.get(emp)?.projektcode||'') })
+      rows.push({ week: wid, mitarbeiter: emp, total, internal, billable, pct, kunde: (em.get(emp)?.kunde||''), leistungsart: (em.get(emp)?.leistungsart||''), projektcode: (em.get(emp)?.projektcode||'') })
     }
   }
   // sort by week then pct desc
@@ -388,15 +391,18 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   const empSet = new Set(rows.map(r=>r.mitarbeiter))
   const evalRows = []
   
-  // For month mode: calculate totals and internal hours per employee across entire month
+  // For month mode: calculate totals, internal and billable hours per employee across entire month
   const byEmpInternal = new Map()
+  const byEmpBillable = new Map()
   const byEmpMonthTotal = new Map()
   if (month && monthYear) {
     for (const r of rows) {
       const emp = r.mitarbeiter
       const internalVal = Number(r.internal||0)
+      const billableVal = Number(r.billable||0)
       const totalVal = Number(r.total||0)
       byEmpInternal.set(emp, (byEmpInternal.get(emp)||0) + internalVal)
+      byEmpBillable.set(emp, (byEmpBillable.get(emp)||0) + billableVal)
       byEmpMonthTotal.set(emp, (byEmpMonthTotal.get(emp)||0) + totalVal)
     }
   }
@@ -426,11 +432,13 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
       ))
       if (triggered) {
         const monthNames = ['', 'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+        const billableHours = Number(byEmpBillable.get(e)||0)
         evalRows.push({ 
           week: `${monthNames[Number(month)]}-${monthYear}`, 
           mitarbeiter: e, 
           total: totalHours, 
-          internal: internalHours, 
+          internal: internalHours,
+          billable: billableHours,
           pct, 
           reasons 
         })
@@ -499,7 +507,7 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
     html += '<p><strong>Keine Verstöße gefunden.</strong></p>'
   } else {
     html += `<p><strong>${offenders.length}</strong> Einträge:</p>`
-    html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Woche</th><th>Mitarbeiter</th><th>Intern (h)</th><th>Gesamt (h)</th><th>Quote intern</th><th>Gründe</th></tr></thead><tbody>'
+    html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Woche</th><th>Mitarbeiter</th><th>Intern (h)</th><th>Fakturiert (h)</th><th>Gesamt (h)</th><th>Quote intern</th><th>Gründe</th></tr></thead><tbody>'
     for (const r of offenders) {
       const reasonsTxt = (r.reasons||[]).map(x=> {
         if (x.type==='internal_share') return `Interner Anteil > ${pctFmt(threshold||0.2)} (${(x.weeks||[]).join(',')})`
@@ -508,7 +516,7 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
         if (x.type==='min_total') return `Summe < ${hoursFmt(minTotalHours)}`
         return x.type
       }).join(', ')
-      html += `<tr><td>${r.week}</td><td>${r.mitarbeiter}</td><td style="text-align:right">${hoursFmt(r.internal)}</td><td style="text-align:right">${hoursFmt(r.total)}</td><td style="text-align:right">${pctFmt(r.pct)}</td><td>${reasonsTxt}</td></tr>`
+      html += `<tr><td>${r.week}</td><td>${r.mitarbeiter}</td><td style="text-align:right">${hoursFmt(r.internal)}</td><td style="text-align:right">${hoursFmt(r.billable||0)}</td><td style="text-align:right">${hoursFmt(r.total)}</td><td style="text-align:right">${pctFmt(r.pct)}</td><td>${reasonsTxt}</td></tr>`
     }
     html += '</tbody></table>'
   }
@@ -597,9 +605,9 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
       <div class="note">Mapping aktiv: Codes=[${(mapping.projects||[]).join(', ')}], Tokens=[${(mapping.tokens||[]).join(', ')}]</div>
       <h3>Watchdog Ergebnisse (${rows.length})</h3>
       ${rows.length===0 ? `<div class="note">Keine Einträge für die gewählten Parameter. Bitte Schwellen/Zeitraum prüfen.</div>` : ''}
-      <table><thead><tr><th>Woche</th><th>Mitarbeiter</th><th class="right">Intern (h)</th><th class="right">Gesamt (h)</th><th class="right">Anteil Intern</th><th>Gründe</th></tr></thead>
+      <table><thead><tr><th>Woche</th><th>Mitarbeiter</th><th class="right">Intern (h)</th><th class="right">Fakturiert (h)</th><th class="right">Gesamt (h)</th><th class="right">Anteil Intern</th><th>Gründe</th></tr></thead>
       <tbody>
-      ${rows.map(r => `<tr><td>${esc(r.week)}</td><td>${esc(r.mitarbeiter)}</td><td class="right">${Number(r.internal||0).toFixed(2)}</td><td class="right">${Number(r.total||0).toFixed(2)}</td><td class="right">${((r.pct||0)*100).toFixed(1)}%</td><td>${esc(reasonsTxt(r))}</td></tr>`).join('')}
+      ${rows.map(r => `<tr><td>${esc(r.week)}</td><td>${esc(r.mitarbeiter)}</td><td class="right">${Number(r.internal||0).toFixed(2)}</td><td class="right">${Number(r.billable||0).toFixed(2)}</td><td class="right">${Number(r.total||0).toFixed(2)}</td><td class="right">${((r.pct||0)*100).toFixed(1)}%</td><td>${esc(reasonsTxt(r))}</td></tr>`).join('')}
       </tbody></table>
       </body></html>`
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
