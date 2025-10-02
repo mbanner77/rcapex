@@ -173,6 +173,7 @@ export default function WatchdogTab(){
       if (sortBy==='pct') v = (a.pct||0) - (b.pct||0)
       else if (sortBy==='total') v = (a.total||0) - (b.total||0)
       else if (sortBy==='internal') v = (a.internal||0) - (b.internal||0)
+      else if (sortBy==='billable') v = (a.billable||0) - (b.billable||0)
       else if (sortBy==='mitarbeiter') v = cmpStr(a.mitarbeiter, b.mitarbeiter)
       else if (sortBy==='week') v = cmpStr(a.week, b.week)
       return sortDir==='asc' ? v : -v
@@ -181,7 +182,7 @@ export default function WatchdogTab(){
   }, [data, offendersOnly, query, sortBy, sortDir])
 
   function exportCsv(){
-    const lines = ['week;mitarbeiter;kunde;leistungsart;projektcode;internal;total;pct']
+    const lines = ['week;mitarbeiter;kunde;leistungsart;projektcode;internal;billable;total;pct']
     for (const r of rows) {
       lines.push([
         r.week,
@@ -190,6 +191,7 @@ export default function WatchdogTab(){
         String(r.leistungsart||'').replaceAll(';',','),
         String(r.projektcode||'').replaceAll(';',','),
         r.internal,
+        r.billable||0,
         r.total,
         ((r.pct||0)*100).toFixed(1)
       ].join(';'))
@@ -342,8 +344,9 @@ export default function WatchdogTab(){
                 <th>Kunde</th>
                 <th>Leistungsart</th>
                 <th>Projektcode</th>
-                <th className="right" title="Summe interner Projekte je Mitarbeiter/Woche" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('internal'); setSortDir(sortBy==='internal' && sortDir==='asc' ? 'desc' : 'asc') }}>Intern (h)</th>
-                <th className="right" title="Summe aller Stunden je Mitarbeiter/Woche über alle Projekte" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('total'); setSortDir(sortBy==='total' && sortDir==='asc' ? 'desc' : 'asc') }}>Gesamt (h) – alle Projekte</th>
+                <th className="right" title="Summe interner Projekte (N/INT)" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('internal'); setSortDir(sortBy==='internal' && sortDir==='asc' ? 'desc' : 'asc') }}>Intern (h)</th>
+                <th className="right" title="Summe fakturierter Stunden (J)" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('billable'); setSortDir(sortBy==='billable' && sortDir==='asc' ? 'desc' : 'asc') }}>Fakturiert (h)</th>
+                <th className="right" title="Summe aller Stunden (Intern + Fakturiert)" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('total'); setSortDir(sortBy==='total' && sortDir==='asc' ? 'desc' : 'asc') }}>Gesamt (h)</th>
                 <th className="right" title="Anteil intern = Intern/Gesamt" style={{cursor:'pointer'}} onClick={()=>{ setSortBy('pct'); setSortDir(sortBy==='pct' && sortDir==='asc' ? 'desc' : 'asc') }}>Anteil Intern</th>
               </tr>
             </thead>
@@ -360,6 +363,7 @@ export default function WatchdogTab(){
                   <td>{r.leistungsart || ''}</td>
                   <td>{r.projektcode || ''}</td>
                   <td className="right">{fmt(r.internal)}</td>
+                  <td className="right">{fmt(r.billable||0)}</td>
                   <td className="right">{fmt(r.total)}</td>
                   <td className="right">{((r.pct||0)*100).toFixed(1)}%</td>
                 </tr>
