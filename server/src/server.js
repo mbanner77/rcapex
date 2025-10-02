@@ -382,32 +382,73 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   // Build per-employee evaluation
   const empSet = new Set(rows.map(r=>r.mitarbeiter))
   const evalRows = []
+  
+  // For month mode: calculate totals per employee across entire month
+  const byEmpInternal = new Map()
+  if (month && monthYear) {
+    for (const r of rows) {
+      const emp = r.mitarbeiter
+      byEmpInternal.set(emp, (byEmpInternal.get(emp)||0) + Number(r.internal||0))
+    }
+  }
+  
   for (const e of empSet) {
     const reasons = []
-    // internal share rule (any week in range exceeding threshold)
-    if (useInternalShare) {
-      const exceeded = rows.filter(r => r.mitarbeiter===e && r.pct >= Number(threshold||0.2))
-      if (exceeded.length>0) reasons.push({ type:'internal_share', weeks: exceeded.map(x=>x.week), value: Math.max(...exceeded.map(x=>x.pct||0)) })
-    }
-    // zero last week rule
-    if (useZeroLastWeek) {
-      const rw = byEmpWeek.get(`${e}||${lastWeekId}`)
-      const total = Number(rw?.total||0)
-      if (!rw || total <= 0) reasons.push({ type:'zero_last_week', week: lastWeekId, value: 0 })
-    }
-    // min total hours across range
-    if (useMinTotal && Number(minTotalHours||0) > 0) {
-      const sum = Number(byEmpTotals.get(e)||0)
-      if (sum < Number(minTotalHours)) reasons.push({ type:'min_total', value: sum, min: Number(minTotalHours) })
-    }
-    // Combine logic
-    const triggered = reasons.length > 0 && (combine==='or' ? true : (
-      (useInternalShare?1:0) + (useZeroLastWeek?1:0) + (useMinTotal?1:0) === reasons.length
-    ))
-    if (triggered) {
-      // choose a representative row: prefer lastWeek if present, else highest internal pct
-      const base = byEmpWeek.get(`${e}||${lastWeekId}`) || rows.filter(r=>r.mitarbeiter===e).sort((a,b)=> (b.pct||0)-(a.pct||0))[0] || { week:lastWeekId, mitarbeiter:e, total:0, internal:0, pct:0 }
-      evalRows.push({ ...base, reasons })
+    
+    if (month && monthYear) {
+      // Month mode: check total internal share across entire month
+      const totalHours = Number(byEmpTotals.get(e)||0)
+      const internalHours = Number(byEmpInternal.get(e)||0)
+      const pct = totalHours > 0 ? (internalHours / totalHours) : 0
+      
+      if (useInternalShare && pct >= Number(threshold||0.2)) {
+        const weeksInMonth = [...new Set(rows.filter(r => r.mitarbeiter===e).map(r => r.week))]
+        reasons.push({ type:'internal_share', weeks: weeksInMonth, value: pct })
+      }
+      if (useZeroLastWeek && totalHours <= 0) {
+        reasons.push({ type:'zero_period', period: 'month', value: 0 })
+      }
+      if (useMinTotal && Number(minTotalHours||0) > 0 && totalHours < Number(minTotalHours)) {
+        reasons.push({ type:'min_total', value: totalHours, min: Number(minTotalHours) })
+      }
+      
+      const triggered = reasons.length > 0 && (combine==='or' ? true : (
+        (useInternalShare?1:0) + (useZeroLastWeek?1:0) + (useMinTotal?1:0) === reasons.length
+      ))
+      if (triggered) {
+        const monthNames = ['', 'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+        evalRows.push({ 
+          week: `${monthNames[Number(month)]}-${monthYear}`, 
+          mitarbeiter: e, 
+          total: totalHours, 
+          internal: internalHours, 
+          pct, 
+          reasons 
+        })
+      }
+    } else {
+      // Week mode: original logic
+      if (useInternalShare) {
+        const exceeded = rows.filter(r => r.mitarbeiter===e && r.pct >= Number(threshold||0.2))
+        if (exceeded.length>0) reasons.push({ type:'internal_share', weeks: exceeded.map(x=>x.week), value: Math.max(...exceeded.map(x=>x.pct||0)) })
+      }
+      if (useZeroLastWeek) {
+        const rw = byEmpWeek.get(`${e}||${lastWeekId}`)
+        const total = Number(rw?.total||0)
+        if (!rw || total <= 0) reasons.push({ type:'zero_last_week', week: lastWeekId, value: 0 })
+      }
+      if (useMinTotal && Number(minTotalHours||0) > 0) {
+        const sum = Number(byEmpTotals.get(e)||0)
+        if (sum < Number(minTotalHours)) reasons.push({ type:'min_total', value: sum, min: Number(minTotalHours) })
+      }
+      
+      const triggered = reasons.length > 0 && (combine==='or' ? true : (
+        (useInternalShare?1:0) + (useZeroLastWeek?1:0) + (useMinTotal?1:0) === reasons.length
+      ))
+      if (triggered) {
+        const base = byEmpWeek.get(`${e}||${lastWeekId}`) || rows.filter(r=>r.mitarbeiter===e).sort((a,b)=> (b.pct||0)-(a.pct||0))[0] || { week:lastWeekId, mitarbeiter:e, total:0, internal:0, pct:0 }
+        evalRows.push({ ...base, reasons })
+      }
     }
   }
   const offenders = evalRows
@@ -435,7 +476,13 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   let html = `<p>Watchdog (Unit ${unit||'ALL'}): ${title}</p>`
   html += `<ul>`
   if (useInternalShare) html += `<li>Interner Anteil > ${pctFmt(threshold||0.2)}</li>`
-  if (useZeroLastWeek) html += `<li>Keine Zeiten letzte Woche (${lastWeekId})</li>`
+  if (useZeroLastWeek) {
+    if (month && monthYear) {
+      html += `<li>Keine Zeiten im gesamten Monat</li>`
+    } else {
+      html += `<li>Keine Zeiten letzte Woche (${lastWeekId})</li>`
+    }
+  }
   if (useMinTotal) html += `<li>Summe Stunden < ${hoursFmt(minTotalHours||0)}</li>`
   html += `<li>Kombination: ${combine==='and'?'UND':'ODER'}</li>`
   html += `</ul>`
@@ -445,7 +492,13 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
     html += `<p><strong>${offenders.length}</strong> Einträge:</p>`
     html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Woche</th><th>Mitarbeiter</th><th>Intern (h)</th><th>Gesamt (h)</th><th>Quote intern</th><th>Gründe</th></tr></thead><tbody>'
     for (const r of offenders) {
-      const reasonsTxt = (r.reasons||[]).map(x=> x.type==='internal_share' ? `Interner Anteil > ${pctFmt(threshold||0.2)} (${(x.weeks||[]).join(',')})` : (x.type==='zero_last_week' ? `Keine Zeiten (${x.week})` : `Summe < ${hoursFmt(minTotalHours)}`)).join(', ')
+      const reasonsTxt = (r.reasons||[]).map(x=> {
+        if (x.type==='internal_share') return `Interner Anteil > ${pctFmt(threshold||0.2)} (${(x.weeks||[]).join(',')})`
+        if (x.type==='zero_last_week') return `Keine Zeiten (${x.week})`
+        if (x.type==='zero_period') return `Keine Zeiten im Monat`
+        if (x.type==='min_total') return `Summe < ${hoursFmt(minTotalHours)}`
+        return x.type
+      }).join(', ')
       html += `<tr><td>${r.week}</td><td>${r.mitarbeiter}</td><td style="text-align:right">${hoursFmt(r.internal)}</td><td style="text-align:right">${hoursFmt(r.total)}</td><td style="text-align:right">${pctFmt(r.pct)}</td><td>${reasonsTxt}</td></tr>`
     }
     html += '</tbody></table>'
@@ -514,7 +567,12 @@ app.get('/api/watchdogs/internal/preview-page', async (req, res) => {
     const mapping = parseMappingFromReq(req)
     const result = await runInternalWatchdog({ unit, recipients: [], threshold, weeksBack, useInternalShare, useZeroLastWeek, useMinTotal, minTotalHours, combine, mapping, month, monthYear })
     const rows = Array.isArray(result?.offenders) ? result.offenders : []
-    const reasonsTxt = (r)=> (Array.isArray(r?.reasons)? r.reasons.map(x=> x.type==='internal_share' ? `internal_share (${(x.weeks||[]).join(',')})` : x.type).join(', ') : '')
+    const reasonsTxt = (r)=> (Array.isArray(r?.reasons)? r.reasons.map(x=> {
+      if (x.type==='internal_share') return `internal_share (${(x.weeks||[]).join(',')})`
+      if (x.type==='zero_last_week') return `zero_last_week (${x.week})`
+      if (x.type==='zero_period') return `zero_period (month)`
+      return x.type
+    }).join(', ') : '')
     const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Watchdog Preview</title>
       <style>
         :root{ color-scheme: light; }
