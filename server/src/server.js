@@ -51,7 +51,9 @@ const DEFAULT_EXCEPTIONS = [
   { name: 'RCC_PAUSCHAL_BASIS', exclude: true, partTimeHours: null },
   { name: 'RCC292_G.GOEKOLUK', exclude: false, partTimeHours: 4 },
   { name: 'RCC312_R.RAHMAN', exclude: false, partTimeHours: 4 },
-  { name: 'RC100_S.WOLFF-31.08.2025', exclude: false, partTimeHours: 4.8 }
+  { name: 'RC100_S.WOLFF-31.08.2025', exclude: false, partTimeHours: 4.8 },
+  { name: 'RCC277_M.HOFFMEISTER', exclude: false, partTimeHours: 4 },
+  { name: 'RC151_S.KAROLUS', exclude: false, partTimeHours: 6.4 }
 ]
 let TIMESHEET_EXCEPTIONS = [] // [{ name: 'Max Mustermann', exclude: true, partTimeHours: null }, ...]
 
