@@ -296,8 +296,6 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
   const weekEmp = new Map()
   const toNumber = (n)=>{ if(n==null)return 0; if(typeof n==='number')return n; if(typeof n==='string'){const s=n.replace(/\./g,'').replace(',', '.'); const v=Number(s); return isNaN(v)?0:v} return Number(n||0) }
   for (const r of itemsAll) {
-    // Skip excluded Leistungsart (starts with 'J')
-    if (isExcludedByLeistungsart(r)) continue
     const meta = extractMeta(r)
     // find a date for this entry – prefer DATUM fields
     const dstr = r?.DATUM || r?.datum || r?.DATE || r?.date || r?.BUCHUNGSDATUM || r?.buchungsdatum
@@ -313,19 +311,26 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
     const em = weekEmp.get(wid)
     if (!em.has(emp)) em.set(emp, { total: 0, internal: 0, kunde: '', leistungsart: '', projektcode: '' })
     const obj = em.get(emp)
+    
+    // IMPORTANT: total includes ALL hours (N + J), not just non-J
     obj.total += val
-    const isInt = isInternalProject(r, mapping)
-    if (isInt) {
-      obj.internal += val
-      // Prefer internal meta when available
-      obj.kunde = meta.kunde || obj.kunde
-      obj.leistungsart = meta.leistungsart || obj.leistungsart
-      obj.projektcode = meta.code || obj.projektcode
-    } else {
-      // Set defaults if not set yet
-      if (!obj.kunde && meta.kunde) obj.kunde = meta.kunde
-      if (!obj.leistungsart && meta.leistungsart) obj.leistungsart = meta.leistungsart
-      if (!obj.projektcode && meta.code) obj.projektcode = meta.code
+    
+    // Check if this is an internal project (N-prefix or INT projects, but NOT J-prefix)
+    const isExcluded = isExcludedByLeistungsart(r)
+    if (!isExcluded) {
+      const isInt = isInternalProject(r, mapping)
+      if (isInt) {
+        obj.internal += val
+        // Prefer internal meta when available
+        obj.kunde = meta.kunde || obj.kunde
+        obj.leistungsart = meta.leistungsart || obj.leistungsart
+        obj.projektcode = meta.code || obj.projektcode
+      } else {
+        // Set defaults if not set yet
+        if (!obj.kunde && meta.kunde) obj.kunde = meta.kunde
+        if (!obj.leistungsart && meta.leistungsart) obj.leistungsart = meta.leistungsart
+        if (!obj.projektcode && meta.code) obj.projektcode = meta.code
+      }
     }
   }
   // Flatten rows
@@ -387,12 +392,10 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   const byEmpInternal = new Map()
   const byEmpMonthTotal = new Map()
   if (month && monthYear) {
-    console.log(`DEBUG: Processing ${rows.length} rows for month ${month}/${monthYear}`)
     for (const r of rows) {
       const emp = r.mitarbeiter
       const internalVal = Number(r.internal||0)
       const totalVal = Number(r.total||0)
-      console.log(`DEBUG: ${emp} week ${r.week}: total=${totalVal}, internal=${internalVal}, pct=${r.pct}`)
       byEmpInternal.set(emp, (byEmpInternal.get(emp)||0) + internalVal)
       byEmpMonthTotal.set(emp, (byEmpMonthTotal.get(emp)||0) + totalVal)
     }
@@ -406,11 +409,6 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
       const totalHours = Number(byEmpMonthTotal.get(e)||0)
       const internalHours = Number(byEmpInternal.get(e)||0)
       const pct = totalHours > 0 ? (internalHours / totalHours) : 0
-      
-      // Debug: Log if values look suspicious
-      if (totalHours === internalHours && totalHours > 0) {
-        console.log(`DEBUG: ${e} has 100% internal: total=${totalHours}, internal=${internalHours}`);
-      }
       
       if (useInternalShare && pct >= Number(threshold||0.2)) {
         const weeksInMonth = [...new Set(rows.filter(r => r.mitarbeiter===e).map(r => r.week))]
