@@ -82,9 +82,18 @@ export function detectInternalDetail(rowOrMeta, mapping){
 }
 
 export function isInternalProject(row, mapping){
-  if (isExcludedByLeistungsart(row, mapping)) return false
   const meta = extractMeta(row)
-  const det = detectInternalDetail({ code: meta.code, name: String(row?.projektname || row?.PROJEKTNAME || row?.projekt || meta.code), leistungsart: meta.leistungsart }, mapping)
+  const code = meta.code
+  const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || meta.code).toUpperCase().trim()
+  
+  // Check INT projects first - they are ALWAYS internal, regardless of Leistungsart
+  // This includes INT+J combinations
+  if (code.startsWith('INT') || name.startsWith('INT')) return true
+  
+  // For non-INT projects, exclude J-Leistungsart (J without INT = billable)
+  if (isExcludedByLeistungsart(row, mapping)) return false
+  
+  const det = detectInternalDetail({ code: meta.code, name, leistungsart: meta.leistungsart }, mapping)
   return !!det.matched
 }
 
