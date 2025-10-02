@@ -383,12 +383,14 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   const empSet = new Set(rows.map(r=>r.mitarbeiter))
   const evalRows = []
   
-  // For month mode: calculate totals per employee across entire month
+  // For month mode: calculate totals and internal hours per employee across entire month
   const byEmpInternal = new Map()
+  const byEmpMonthTotal = new Map()
   if (month && monthYear) {
     for (const r of rows) {
       const emp = r.mitarbeiter
       byEmpInternal.set(emp, (byEmpInternal.get(emp)||0) + Number(r.internal||0))
+      byEmpMonthTotal.set(emp, (byEmpMonthTotal.get(emp)||0) + Number(r.total||0))
     }
   }
   
@@ -397,7 +399,7 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
     
     if (month && monthYear) {
       // Month mode: check total internal share across entire month
-      const totalHours = Number(byEmpTotals.get(e)||0)
+      const totalHours = Number(byEmpMonthTotal.get(e)||0)
       const internalHours = Number(byEmpInternal.get(e)||0)
       const pct = totalHours > 0 ? (internalHours / totalHours) : 0
       
