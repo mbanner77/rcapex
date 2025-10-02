@@ -387,10 +387,14 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
   const byEmpInternal = new Map()
   const byEmpMonthTotal = new Map()
   if (month && monthYear) {
+    console.log(`DEBUG: Processing ${rows.length} rows for month ${month}/${monthYear}`)
     for (const r of rows) {
       const emp = r.mitarbeiter
-      byEmpInternal.set(emp, (byEmpInternal.get(emp)||0) + Number(r.internal||0))
-      byEmpMonthTotal.set(emp, (byEmpMonthTotal.get(emp)||0) + Number(r.total||0))
+      const internalVal = Number(r.internal||0)
+      const totalVal = Number(r.total||0)
+      console.log(`DEBUG: ${emp} week ${r.week}: total=${totalVal}, internal=${internalVal}, pct=${r.pct}`)
+      byEmpInternal.set(emp, (byEmpInternal.get(emp)||0) + internalVal)
+      byEmpMonthTotal.set(emp, (byEmpMonthTotal.get(emp)||0) + totalVal)
     }
   }
   
@@ -402,6 +406,11 @@ async function runInternalWatchdog({ unit = 'ALL', recipients = [], threshold = 
       const totalHours = Number(byEmpMonthTotal.get(e)||0)
       const internalHours = Number(byEmpInternal.get(e)||0)
       const pct = totalHours > 0 ? (internalHours / totalHours) : 0
+      
+      // Debug: Log if values look suspicious
+      if (totalHours === internalHours && totalHours > 0) {
+        console.log(`DEBUG: ${e} has 100% internal: total=${totalHours}, internal=${internalHours}`);
+      }
       
       if (useInternalShare && pct >= Number(threshold||0.2)) {
         const weeksInMonth = [...new Set(rows.filter(r => r.mitarbeiter===e).map(r => r.week))]
