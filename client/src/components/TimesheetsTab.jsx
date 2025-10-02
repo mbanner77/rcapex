@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { getUnits } from '../lib/constants'
 import { fetchTimesheetsReport, runTimesheetsWatchdog, getMailSettings, getTimesheetExceptions, updateTimesheetExceptions } from '../lib/api'
 
@@ -418,12 +419,38 @@ export default function TimesheetsTab(){
       </div>
 
       {/* Exceptions Dialog */}
-      {showExceptionsDialog && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-          <div className="panel" style={{ width:'90%', maxWidth:800, maxHeight:'90vh', overflow:'auto', padding:20 }}>
+      {showExceptionsDialog && createPortal(
+        <div 
+          style={{ 
+            position:'fixed', 
+            inset:0, 
+            background:'rgba(0,0,0,0.7)', 
+            display:'flex', 
+            alignItems:'center', 
+            justifyContent:'center', 
+            zIndex:9999,
+            padding:20
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowExceptionsDialog(false)
+          }}
+        >
+          <div 
+            className="panel" 
+            style={{ 
+              width:'100%', 
+              maxWidth:800, 
+              maxHeight:'90vh', 
+              overflow:'auto', 
+              padding:20,
+              position:'relative',
+              zIndex:10000
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
               <h3 style={{ margin:0 }}>Ausnahmen verwalten</h3>
-              <button className="btn" onClick={() => setShowExceptionsDialog(false)}>✕</button>
+              <button className="btn" onClick={() => setShowExceptionsDialog(false)} style={{ padding:'8px 12px' }}>✕</button>
             </div>
             <div style={{ marginBottom:16, color:'var(--muted)', fontSize:14 }}>
               <p style={{ margin:'0 0 8px 0' }}><strong>Ausschluss:</strong> Mitarbeiter wird komplett aus der Liste entfernt</p>
@@ -495,7 +522,8 @@ export default function TimesheetsTab(){
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
