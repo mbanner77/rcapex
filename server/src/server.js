@@ -40,6 +40,8 @@ const APEX_PASSWORD = (process.env.APEX_PASSWORD || '').trim();
 const APEX_OVERRIDES = { username: '', password: '' };
 // Persisted mapping for internal projects (server-wide)
 let PERSISTED_MAPPING = { projects: [], tokens: [] }
+// Timesheet exceptions: users to exclude or with part-time hours
+let TIMESHEET_EXCEPTIONS = [] // [{ name: 'Max Mustermann', exclude: true, partTimeHours: null }, ...]
 
 // Helper: get Monday (UTC) for ISO week/year
 function isoWeekToDateUTC(isoYear, isoWeek){
@@ -130,6 +132,14 @@ async function loadPersistedApex() {
       const tokens = Array.isArray(mp?.tokens) ? mp.tokens : []
       PERSISTED_MAPPING = normalizeMapping({ projects, tokens })
     if (Array.isArray(json?.holidays)) HOLIDAYS = json.holidays.filter(x=>typeof x==="string").map(s=>s.slice(0,10))
+    }
+    // Load timesheet exceptions
+    if (Array.isArray(json?.timesheetExceptions)) {
+      TIMESHEET_EXCEPTIONS = json.timesheetExceptions.map(ex => ({
+        name: String(ex.name || ''),
+        exclude: !!ex.exclude,
+        partTimeHours: ex.partTimeHours != null ? Number(ex.partTimeHours) : null
+      })).filter(ex => ex.name)
     }
   } catch (_) { /* ignore */ }
 }
@@ -559,13 +569,26 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
   const { byEmp, empSet } = await computeTimesheetTotals({ datum_von: range.datum_von, datum_bis: range.datum_bis, unit })
   const offenders = []
   const rows = []
+  
+  // Build exception map for quick lookup
+  const exceptionMap = new Map()
+  for (const ex of TIMESHEET_EXCEPTIONS) {
+    exceptionMap.set(ex.name, ex)
+  }
+  
   if (mode === 'monthly'){
     const s = new Date(range.datum_von)
     const e = new Date(range.datum_bis)
     const workingDays = workingDaysBetween(s, e)
-    const expected = workingDays * Number(hoursPerDay||8)
     for (const name of empSet){
+      // Check if user should be excluded
+      const exception = exceptionMap.get(name)
+      if (exception?.exclude) continue
+      
       const tot = Number(byEmp.get(name)||0)
+      // Use part-time hours if defined, otherwise use default hoursPerDay
+      const dailyHours = exception?.partTimeHours != null ? exception.partTimeHours : Number(hoursPerDay||8)
+      const expected = workingDays * dailyHours
       const ratio = expected>0 ? tot/expected : 1
       let status = 'good'
       if (tot <= 0) status = 'bad'
@@ -576,8 +599,14 @@ async function runTimesheetsWatchdog({ mode = 'weekly', unit = 'ALL', recipients
     }
   } else {
     for (const name of empSet){
+      // Check if user should be excluded
+      const exception = exceptionMap.get(name)
+      if (exception?.exclude) continue
+      
       const tot = Number(byEmp.get(name)||0)
-      const expected = 5 * Number(hoursPerDay||8)
+      // Use part-time hours if defined, otherwise use default hoursPerDay
+      const dailyHours = exception?.partTimeHours != null ? exception.partTimeHours : Number(hoursPerDay||8)
+      const expected = 5 * dailyHours
       const ratio = expected>0 ? tot/expected : 1
       let status = 'good'
       if (tot <= 0) status = 'bad'
@@ -682,6 +711,31 @@ app.get('/api/watchdogs/timesheets/preview-page', async (req, res) => {
     res.status(status).send(`<pre>${errMessage(e)}</pre>`)
   }
 })
+
+// Timesheet exceptions management
+app.get('/api/watchdogs/timesheets/exceptions', async (req, res) => {
+  res.json({ ok: true, exceptions: TIMESHEET_EXCEPTIONS })
+})
+
+app.post('/api/watchdogs/timesheets/exceptions', async (req, res) => {
+  try {
+    const { exceptions } = req.body || {}
+    if (!Array.isArray(exceptions)) {
+      return res.status(400).json({ error: true, message: 'exceptions array required' })
+    }
+    TIMESHEET_EXCEPTIONS = exceptions.map(ex => ({
+      name: String(ex.name || '').trim(),
+      exclude: !!ex.exclude,
+      partTimeHours: ex.partTimeHours != null ? Number(ex.partTimeHours) : null
+    })).filter(ex => ex.name)
+    await savePersistedApex()
+    res.json({ ok: true, exceptions: TIMESHEET_EXCEPTIONS })
+  } catch (e) {
+    const status = e.response?.status || 500
+    res.status(status).json({ error: true, status, message: errMessage(e) })
+  }
+})
+
 app.get('/api/watchdogs/internal/debug', async (req, res) => {
   try {
     const unit = req.query.unit || 'ALL'
@@ -908,6 +962,7 @@ async function savePersistedApex() {
     }
     existing.internalMapping = PERSISTED_MAPPING
     existing.holidays = Array.isArray(HOLIDAYS) ? HOLIDAYS : []
+    existing.timesheetExceptions = TIMESHEET_EXCEPTIONS
     await fsn.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf8')
   } catch (_) { /* ignore */ }
 }

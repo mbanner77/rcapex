@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getUnits } from '../lib/constants'
-import { fetchTimesheetsReport, runTimesheetsWatchdog, getMailSettings } from '../lib/api'
+import { fetchTimesheetsReport, runTimesheetsWatchdog, getMailSettings, getTimesheetExceptions, updateTimesheetExceptions } from '../lib/api'
 
 function fmt(n){
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
@@ -76,11 +76,20 @@ export default function TimesheetsTab(){
     const lastMonth = getLastMonth()
     return lastMonth.year.toString()
   })
+  const [showExceptionsDialog, setShowExceptionsDialog] = useState(false)
+  const [exceptions, setExceptions] = useState([])
+  const [exceptionsLoading, setExceptionsLoading] = useState(false)
 
   useEffect(() => {
     const onUnits = () => setUnits(getUnits())
     window.addEventListener('units_changed', onUnits)
     return () => window.removeEventListener('units_changed', onUnits)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getTimesheetExceptions().then(ex => { if (!cancelled) setExceptions(ex) }).catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -234,6 +243,48 @@ export default function TimesheetsTab(){
     URL.revokeObjectURL(url)
   }
 
+  async function saveExceptions() {
+    setExceptionsLoading(true)
+    try {
+      const saved = await updateTimesheetExceptions(exceptions)
+      setExceptions(saved)
+      alert('Ausnahmen gespeichert.')
+      setShowExceptionsDialog(false)
+      // Reload data to reflect changes
+      const params = { unit, mode, hoursPerDay }
+      if (rangeMode === 'custom' && customFrom && customTo) {
+        params.datum_von = customFrom
+        params.datum_bis = customTo
+      } else if (rangeMode === 'week' && isoWeek) {
+        params.isoWeek = isoWeek
+        params.isoYear = isoYear
+      } else if (rangeMode === 'month' && selectedMonth && selectedMonthYear) {
+        params.month = selectedMonth
+        params.monthYear = selectedMonthYear
+      }
+      const r = await fetchTimesheetsReport(params)
+      setData({ rows: r.rows||[], offenders: r.offenders||[], range: r.range||{} })
+    } catch (e) {
+      alert('Fehler: ' + (e?.response?.data?.message || e.message))
+    } finally {
+      setExceptionsLoading(false)
+    }
+  }
+
+  function addException() {
+    setExceptions([...exceptions, { name: '', exclude: false, partTimeHours: null }])
+  }
+
+  function removeException(idx) {
+    setExceptions(exceptions.filter((_, i) => i !== idx))
+  }
+
+  function updateException(idx, field, value) {
+    const updated = [...exceptions]
+    updated[idx] = { ...updated[idx], [field]: value }
+    setExceptions(updated)
+  }
+
   return (
     <div className="grid">
       <div className="panel" style={{ padding:12 }}>
@@ -316,6 +367,7 @@ export default function TimesheetsTab(){
           )}
           <button className="btn" onClick={exportCsv}>Export CSV</button>
           <button className="btn" onClick={preview}>Vorschau</button>
+          <button className="btn" onClick={() => setShowExceptionsDialog(true)}>Ausnahmen…</button>
           <input className="input" placeholder="E-Mail Empfänger (Komma)" value={mailTo} onChange={(e)=>setMailTo(e.target.value)} style={{ width:240 }} />
           <button className="btn" onClick={sendMail}>Per Mail senden…</button>
         </div>
@@ -364,6 +416,87 @@ export default function TimesheetsTab(){
           </div>
         </div>
       </div>
+
+      {/* Exceptions Dialog */}
+      {showExceptionsDialog && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+          <div className="panel" style={{ width:'90%', maxWidth:800, maxHeight:'90vh', overflow:'auto', padding:20 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <h3 style={{ margin:0 }}>Ausnahmen verwalten</h3>
+              <button className="btn" onClick={() => setShowExceptionsDialog(false)}>✕</button>
+            </div>
+            <div style={{ marginBottom:16, color:'var(--muted)', fontSize:14 }}>
+              <p style={{ margin:'0 0 8px 0' }}><strong>Ausschluss:</strong> Mitarbeiter wird komplett aus der Liste entfernt</p>
+              <p style={{ margin:0 }}><strong>Teilzeit:</strong> Individuelle Stunden/Tag für die Berechnung (z.B. 4 für 50% Teilzeit)</p>
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <button className="btn" onClick={addException}>+ Ausnahme hinzufügen</button>
+            </div>
+            <div style={{ overflowX:'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Mitarbeiter-Name</th>
+                    <th style={{ textAlign:'center' }}>Ausschluss</th>
+                    <th>Teilzeit (h/Tag)</th>
+                    <th style={{ width:60 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exceptions.map((ex, idx) => (
+                    <tr key={idx}>
+                      <td>
+                        <input 
+                          className="input" 
+                          value={ex.name} 
+                          onChange={(e) => updateException(idx, 'name', e.target.value)}
+                          placeholder="Name eingeben"
+                          style={{ width:'100%' }}
+                        />
+                      </td>
+                      <td style={{ textAlign:'center' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={ex.exclude} 
+                          onChange={(e) => updateException(idx, 'exclude', e.target.checked)}
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          className="input" 
+                          type="number" 
+                          min={0} 
+                          max={12} 
+                          step={0.5}
+                          value={ex.partTimeHours ?? ''} 
+                          onChange={(e) => updateException(idx, 'partTimeHours', e.target.value ? Number(e.target.value) : null)}
+                          placeholder="Standard"
+                          style={{ width:100 }}
+                          disabled={ex.exclude}
+                        />
+                      </td>
+                      <td>
+                        <button className="btn" onClick={() => removeException(idx)} style={{ padding:'4px 8px' }}>🗑️</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {exceptions.length === 0 && (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign:'center', color:'var(--muted)' }}>Keine Ausnahmen definiert</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:16 }}>
+              <button className="btn" onClick={() => setShowExceptionsDialog(false)}>Abbrechen</button>
+              <button className="btn" onClick={saveExceptions} disabled={exceptionsLoading}>
+                {exceptionsLoading ? 'Speichern…' : 'Speichern'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -156,6 +156,16 @@ export async function runTimesheetsWatchdog(payload) {
   return res.data
 }
 
+export async function getTimesheetExceptions() {
+  const res = await axios.get('/api/watchdogs/timesheets/exceptions')
+  return Array.isArray(res.data?.exceptions) ? res.data.exceptions : []
+}
+
+export async function updateTimesheetExceptions(exceptions) {
+  const res = await axios.post('/api/watchdogs/timesheets/exceptions', { exceptions })
+  return Array.isArray(res.data?.exceptions) ? res.data.exceptions : []
+}
+
 // --- Holidays ---
 export async function getHolidays() {
   const res = await axios.get('/api/holidays')
