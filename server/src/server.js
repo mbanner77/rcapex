@@ -315,25 +315,30 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
     // IMPORTANT: total includes ALL hours (N + J), not just non-J
     obj.total += val
     
-    // Check if this is an internal project (N-prefix or INT projects, but NOT J-prefix)
-    const isExcluded = isExcludedByLeistungsart(r)
-    if (isExcluded) {
-      // J-prefix = billable hours
-      obj.billable += val
+    // Check if this is an internal project (N-prefix or INT projects)
+    const isInt = isInternalProject(r, mapping)
+    
+    // Debug for SREDNIK
+    if (emp.includes('SREDNIK')) {
+      console.log(`DEBUG SREDNIK: code=${meta.code}, la=${meta.leistungsart}, isInt=${isInt}, val=${val}`)
+    }
+    
+    if (isInt) {
+      obj.internal += val
+      // Prefer internal meta when available
+      obj.kunde = meta.kunde || obj.kunde
+      obj.leistungsart = meta.leistungsart || obj.leistungsart
+      obj.projektcode = meta.code || obj.projektcode
     } else {
-      const isInt = isInternalProject(r, mapping)
-      if (isInt) {
-        obj.internal += val
-        // Prefer internal meta when available
-        obj.kunde = meta.kunde || obj.kunde
-        obj.leistungsart = meta.leistungsart || obj.leistungsart
-        obj.projektcode = meta.code || obj.projektcode
-      } else {
-        // Set defaults if not set yet
-        if (!obj.kunde && meta.kunde) obj.kunde = meta.kunde
-        if (!obj.leistungsart && meta.leistungsart) obj.leistungsart = meta.leistungsart
-        if (!obj.projektcode && meta.code) obj.projektcode = meta.code
+      // Not internal - check if it's billable (J-prefix)
+      const isExcluded = isExcludedByLeistungsart(r)
+      if (isExcluded) {
+        obj.billable += val
       }
+      // Set defaults if not set yet
+      if (!obj.kunde && meta.kunde) obj.kunde = meta.kunde
+      if (!obj.leistungsart && meta.leistungsart) obj.leistungsart = meta.leistungsart
+      if (!obj.projektcode && meta.code) obj.projektcode = meta.code
     }
   }
   // Flatten rows
