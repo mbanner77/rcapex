@@ -85,10 +85,13 @@ export function isInternalProject(row, mapping){
   const meta = extractMeta(row)
   const code = meta.code
   const name = String(row?.projektname || row?.PROJEKTNAME || row?.projekt || meta.code).toUpperCase().trim()
+  const la = meta.leistungsart
   
-  // Check INT projects first - they are ALWAYS internal, regardless of Leistungsart
-  // This includes INT+J combinations
-  if (code.startsWith('INT') || name.startsWith('INT')) return true
+  // Check INT projects first - they are ALWAYS internal, regardless of Leistungsart prefix
+  // This includes:
+  // - Code/Name starts with INT
+  // - Leistungsart contains "INT" (e.g., "J - INT. PROJEKT")
+  if (code.startsWith('INT') || name.startsWith('INT') || la.includes('INT')) return true
   
   // For non-INT projects, exclude J-Leistungsart (J without INT = billable)
   if (isExcludedByLeistungsart(row, mapping)) return false

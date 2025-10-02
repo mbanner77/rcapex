@@ -317,12 +317,6 @@ app.post('/api/watchdogs/internal/mapping', async (req, res) => {
     
     // Check if this is an internal project (N-prefix or INT projects)
     const isInt = isInternalProject(r, mapping)
-    
-    // Debug for SREDNIK
-    if (emp.includes('SREDNIK')) {
-      console.log(`DEBUG SREDNIK: code=${meta.code}, la=${meta.leistungsart}, isInt=${isInt}, val=${val}`)
-    }
-    
     if (isInt) {
       obj.internal += val
       // Prefer internal meta when available
