@@ -37,7 +37,12 @@ export default function App() {
   const [gate, setGate] = useState(false)
   const [auth, setAuth] = useState({ checked: false, loggedIn: false, username: null })
   const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog' | 'timesheets'
-  const [params, setParams] = useState(DEFAULTS)
+  const [params, setParams] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('rc_params') || 'null')
+      return saved ? { ...DEFAULTS, ...saved } : DEFAULTS
+    } catch { return DEFAULTS }
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -78,6 +83,14 @@ export default function App() {
     load()
     return () => { cancelled = true }
   }, [auth.loggedIn, tab, params.datum_von, params.datum_bis, params.unit])
+
+  // Persist params to localStorage (only essential fields)
+  useEffect(() => {
+    try {
+      const toSave = { datum_von: params.datum_von, datum_bis: params.datum_bis, unit: params.unit }
+      localStorage.setItem('rc_params', JSON.stringify(toSave))
+    } catch {}
+  }, [params.datum_von, params.datum_bis, params.unit])
 
   // Lazy-load Umsatzliste when Umsatzliste tab is active or params change
   useEffect(() => {
@@ -152,7 +165,21 @@ export default function App() {
           {loading && <div>Loading…</div>}
           {error && <div style={{ color: 'crimson' }}>Fehler: {String(error)}</div>}
 
-          <div className="tabs">
+          {/* Small-screen tab selector */}
+          <div className="show-sm" style={{ marginBottom: 8 }}>
+            <select className="input" value={tab} onChange={(e) => setTab(e.target.value)}>
+              <option value="overview">Übersicht</option>
+              <option value="analytics">Analytik</option>
+              <option value="employee">Mitarbeiter</option>
+              <option value="compare">Vergleich</option>
+              <option value="trends">Trends</option>
+              <option value="umsatzliste">Umsatzliste</option>
+              <option value="watchdog">Watchdog</option>
+              <option value="timesheets">Erfassung</option>
+            </select>
+          </div>
+
+          <div className="tabs hide-sm">
             <div className={`tab ${tab==='overview' ? 'active' : ''}`} onClick={() => setTab('overview')}>Übersicht</div>
             <div className={`tab ${tab==='analytics' ? 'active' : ''}`} onClick={() => setTab('analytics')}>Analytik</div>
             <div className={`tab ${tab==='employee' ? 'active' : ''}`} onClick={() => setTab('employee')}>Mitarbeiter</div>

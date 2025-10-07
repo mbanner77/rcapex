@@ -50,7 +50,8 @@ export default function CustomerTable({ kunden, totals }) {
         </div>
       </div>
 
-      <div className="table-wrap">
+      {/* Desktop/tablet table view */}
+      <div className="table-wrap hide-sm">
         <table className="table">
           <thead>
             <tr>
@@ -79,6 +80,31 @@ export default function CustomerTable({ kunden, totals }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile card view */}
+      <div className="show-sm card-list">
+        {filtered.map((k) => (
+          <div key={k.kunde} className="card">
+            <div className="row">
+              <div style={{ fontWeight: 600 }}>{k.kunde}</div>
+              <span className="badge">{fmt(k.stunden_fakt)}h fakt.</span>
+            </div>
+            <div className="row" style={{ color: 'var(--muted)', fontSize: 13 }}>
+              <span>Geleistet</span>
+              <span>{fmt(k.stunden_gel)}h</span>
+            </div>
+            {k.projekte?.length ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {k.projekte.map((p) => (
+                  <span key={p.projektcode} className="badge">
+                    {p.projektcode}: {fmt(p.stunden_fakt)}h
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
       </div>
     </div>
   )

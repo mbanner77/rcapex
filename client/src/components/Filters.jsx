@@ -94,75 +94,123 @@ export default function Filters({ params, onParamsChange }) {
     setShowAiSuggestions(false)
   }
 
+  // Preset helpers (in-component to access update())
+  function setRange(from, to) {
+    update('datum_von', from.toISOString())
+    update('datum_bis', to.toISOString())
+  }
+  function handleToday() {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+    setRange(start, end)
+  }
+  function handleLastDays(days) {
+    const now = new Date()
+    const start = new Date(now)
+    start.setDate(start.getDate() - days)
+    setRange(start, now)
+  }
+  function handleThisMonth() {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth(), 1)
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+    setRange(start, end)
+  }
+  function handleLastMonth() {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
+    setRange(start, end)
+  }
+  function handleThisQuarter() {
+    const now = new Date()
+    const q = Math.floor(now.getMonth() / 3)
+    const start = new Date(now.getFullYear(), q * 3, 1)
+    const end = new Date(now.getFullYear(), (q + 1) * 3, 0, 23, 59, 59)
+    setRange(start, end)
+  }
+
   return (
-    <div className="toolbar" style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
+    <div className="toolbar">
+      <div className="filters-grid">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>Datum von</label>
+          <input
+            type="datetime-local"
+            value={toLocal(params.datum_von)}
+            onChange={(e) => update('datum_von', fromLocal(e.target.value))}
+            className="input"
+          />
+        </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Datum von</label>
-        <input
-          type="datetime-local"
-          value={toLocal(params.datum_von)}
-          onChange={(e) => update('datum_von', fromLocal(e.target.value))}
-          className="input"
-        />
-      </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>Datum bis</label>
+          <input
+            type="datetime-local"
+            value={toLocal(params.datum_bis)}
+            onChange={(e) => update('datum_bis', fromLocal(e.target.value))}
+            className="input"
+          />
+        </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Datum bis</label>
-        <input
-          type="datetime-local"
-          value={toLocal(params.datum_bis)}
-          onChange={(e) => update('datum_bis', fromLocal(e.target.value))}
-          className="input"
-        />
-      </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 280 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>Unit</label>
+          {!useCustomUnit ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select
+                className="input"
+                value={selectedUnit}
+                onChange={(e) => update('unit', e.target.value)}
+                style={{ flex: 1 }}
+              >
+                <option value="ALL">Alle</option>
+                {unitOptions.map((u) => (
+                  <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
+                ))}
+              </select>
+              <button type="button" className="input" style={{ padding: '10px 12px' }} onClick={() => setUseCustomUnit(true)}>Andere…</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={params.unit}
+                onChange={(e) => update('unit', e.target.value)}
+                className="input"
+                style={{ flex: 1 }}
+                placeholder="ext_id manuell eingeben"
+              />
+              <button type="button" className="input" style={{ padding: '10px 12px' }} onClick={() => setUseCustomUnit(false)}>Liste</button>
+            </div>
+          )}
+        </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 280 }}>
-        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Unit</label>
-        {!useCustomUnit ? (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select
-              className="input"
-              value={selectedUnit}
-              onChange={(e) => update('unit', e.target.value)}
-              style={{ flex: 1 }}
-            >
-              <option value="ALL">Alle</option>
-              {unitOptions.map((u) => (
-                <option key={u.ext_id} value={u.ext_id}>{u.name}</option>
-              ))}
-            </select>
-            <button type="button" className="input" style={{ padding: '10px 12px' }} onClick={() => setUseCustomUnit(true)}>Andere…</button>
+        <div className="filters-actions">
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>Schnellauswahl</label>
+          <div className="filters-actions">
+            <button className="btn" onClick={handleToday}>Heute</button>
+            <button className="btn" onClick={() => handleLastDays(7)}>Letzte 7 Tage</button>
+            <button className="btn" onClick={handleThisMonth}>Dieser Monat</button>
+            <button className="btn" onClick={handleLastMonth}>Letzter Monat</button>
+            <button className="btn" onClick={handleThisQuarter}>Quartal</button>
           </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="text"
-              value={params.unit}
-              onChange={(e) => update('unit', e.target.value)}
-              className="input"
-              style={{ flex: 1 }}
-              placeholder="ext_id manuell eingeben"
-            />
-            <button type="button" className="input" style={{ padding: '10px 12px' }} onClick={() => setUseCustomUnit(false)}>Liste</button>
-          </div>
-        )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* AI-Assistent Button */}
+          <button 
+            type="button" 
+            className="btn"
+            onClick={() => generateAiSuggestions()}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            title="AI-Vorschläge für optimale Filtereinstellungen"
+          >
+            <Sparkles size={16} />
+            AI-Vorschläge
+          </button>
+        </div>
       </div>
-
-      <div style={{ flex: 1 }} />
-
-      {/* AI-Assistent Button */}
-      <button 
-        type="button" 
-        className="btn"
-        onClick={() => generateAiSuggestions()}
-        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-        title="AI-Vorschläge für optimale Filtereinstellungen"
-      >
-        <Sparkles size={16} />
-        AI-Vorschläge
-      </button>
-
       <small style={{ color: 'var(--muted)' }}>API-Filter werden als Header an den Proxy gesendet.</small>
       
       {/* AI Suggestions Panel */}
