@@ -173,6 +173,18 @@ export default function TopMitarbeiterTab({ stundenRaw, umsatzRaw, params }){
   const topHours = hoursByEmp.arr.slice(0, topN)
   const topRevenue = revenueByEmp.arr.slice(0, topN)
 
+  // Lookup-Maps für schnelle Tabellen-Zugriffe
+  const revenueLookup = useMemo(() => {
+    const m = new Map()
+    for (const r of revenueByEmp.arr) m.set(r.mitarbeiter, r.umsatz)
+    return m
+  }, [revenueByEmp.arr])
+  const hoursLookup = useMemo(() => {
+    const m = new Map()
+    for (const r of hoursByEmp.arr) m.set(r.mitarbeiter, r)
+    return m
+  }, [hoursByEmp.arr])
+
   const barData = useMemo(() => {
     if (mode === 'revenue') {
       return {
@@ -272,38 +284,28 @@ export default function TopMitarbeiterTab({ stundenRaw, umsatzRaw, params }){
             <thead>
               <tr>
                 <th>Mitarbeiter</th>
-                {mode==='revenue' ? (
-                  <>
-                    <th className="right">Umsatz ({umsatzMetric})</th>
-                    <th className="right">Stunden fakt (Ref)</th>
-                  </>
-                ) : (
-                  <>
-                    <th className="right">Stunden fakturiert</th>
-                    <th className="right">Stunden geleistet</th>
-                    <th className="right">Quote F/G</th>
-                  </>
-                )}
+                <th className="right">Umsatz ({umsatzMetric})</th>
+                <th className="right">Stunden fakturiert</th>
+                <th className="right">Stunden geleistet</th>
+                <th className="right">Quote F/G</th>
               </tr>
             </thead>
             <tbody>
-              {(mode==='revenue' ? revenueByEmp.arr : hoursByEmp.arr).map((r)=> (
-                <tr key={r.mitarbeiter}>
-                  <td>{r.mitarbeiter}</td>
-                  {mode==='revenue' ? (
-                    <>
-                      <td className="right">{fmt(r.umsatz)}</td>
-                      <td className="right">{fmt((hoursByEmp.arr.find(x=>x.mitarbeiter===r.mitarbeiter)?.fakt)||0)}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="right">{fmt(r.fakt)}</td>
-                      <td className="right">{fmt(r.gel)}</td>
-                      <td className="right">{r.gel>0? `${((r.fakt/r.gel)*100).toFixed(1)}%` : '—'}</td>
-                    </>
-                  )}
-                </tr>
-              ))}
+              {(mode==='revenue' ? revenueByEmp.arr : hoursByEmp.arr).map((r)=> {
+                const emp = r.mitarbeiter
+                const umsatz = mode==='revenue' ? (r.umsatz||0) : (revenueLookup.get(emp)||0)
+                const h = mode==='revenue' ? (hoursLookup.get(emp) || { fakt:0, gel:0 }) : r
+                const quote = h.gel>0 ? ((h.fakt/h.gel)*100).toFixed(1)+"%" : '—'
+                return (
+                  <tr key={emp}>
+                    <td>{emp}</td>
+                    <td className="right">{fmt(umsatz)}</td>
+                    <td className="right">{fmt(h.fakt||0)}</td>
+                    <td className="right">{fmt(h.gel||0)}</td>
+                    <td className="right">{quote}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
