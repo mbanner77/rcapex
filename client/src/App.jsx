@@ -93,12 +93,12 @@ export default function App() {
     } catch {}
   }, [params.datum_von, params.datum_bis, params.unit])
 
-  // Lazy-load Umsatzliste when Umsatzliste tab is active or params change
+  // Lazy-load Umsatzliste when Umsatzliste or Top-Mitarbeiter tab is active or params change
   useEffect(() => {
     let cancelled = false
     async function loadUmsatz() {
       if (!auth.loggedIn) return
-      if (tab !== 'umsatzliste') return
+      if (tab !== 'umsatzliste' && tab !== 'top_employees') return
       setLoading(true)
       setError(null)
       try {
@@ -220,7 +220,7 @@ export default function App() {
           )}
 
           {tab === 'top_employees' && !loading && kundenAgg && (
-            <TopMitarbeiterTab stundenRaw={stundenRaw} params={params} />
+            <TopMitarbeiterTab stundenRaw={stundenRaw} umsatzRaw={umsatzRaw} params={params} />
           )}
 
           {tab === 'compare' && !loading && kundenAgg && (

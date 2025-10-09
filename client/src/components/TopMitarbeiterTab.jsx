@@ -23,8 +23,18 @@ function isInternal(x, mapping){
   return isInternalProject(x, mapping)
 }
 
-export default function TopMitarbeiterTab({ stundenRaw, params }){
+function toNumberDe(v){
+  if (v == null) return 0
+  if (typeof v === 'number') return v
+  const s = String(v).trim()
+  if (!s) return 0
+  const n = Number(s.replace(/\./g,'').replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+
+export default function TopMitarbeiterTab({ stundenRaw, umsatzRaw, params }){
   const allItems = useMemo(() => Array.isArray(stundenRaw?.items) ? stundenRaw.items : (Array.isArray(stundenRaw) ? stundenRaw : []), [stundenRaw])
+  const umsatzItemsRaw = useMemo(() => Array.isArray(umsatzRaw?.items) ? umsatzRaw.items : (Array.isArray(umsatzRaw) ? umsatzRaw : []), [umsatzRaw])
 
   const [mapping, setMapping] = useState(() => getInternalMapping())
   useEffect(() => {
@@ -65,8 +75,36 @@ export default function TopMitarbeiterTab({ stundenRaw, params }){
     })
   }, [allItems, mapping, useYtd, params?.datum_von, params?.datum_bis])
 
-  // Aggregation nach Mitarbeiter (fakturiert)
-  const empTotals = useMemo(() => {
+  // Umsätze: normalisieren, Zeitraum filtern, interne Projekte ausschließen
+  const umsatzItems = useMemo(() => {
+    const norm = (umsatzItemsRaw||[]).map((it)=>{
+      const out = {}
+      for (const [k,v] of Object.entries(it||{})) out[String(k).toLowerCase()] = v
+      if (out.projekt == null && out.projektcode != null) out.projekt = out.projektcode
+      if (out.projektcode == null && out.projekt != null) out.projektcode = out.projekt
+      if (out.umsatz == null && out.umsatz_tatsaechlich != null) out.umsatz = out.umsatz_tatsaechlich
+      if (out.umsatz_tatsaechlich == null && out.umsatz != null) out.umsatz_tatsaechlich = out.umsatz
+      return out
+    })
+    return norm.filter((x)=>{
+      const d = x?.datum || x?.datum_bis || x?.datum_von || x?.date
+      if (!d || !inRange(d)) return false
+      if (isInternal(x, mapping)) return false
+      return true
+    })
+  }, [umsatzItemsRaw, mapping, useYtd, params?.datum_von, params?.datum_bis])
+
+  // Umsatz-Metrik wählen
+  const umsatzMetric = useMemo(() => {
+    const hasT = umsatzItems.some(x => x?.umsatz_tatsaechlich != null)
+    const hasK = umsatzItems.some(x => Object.prototype.hasOwnProperty.call(x,'umsatz_kalk'))
+    if (hasT) return 'umsatz_tatsaechlich'
+    if (hasK) return 'umsatz_kalk'
+    return 'umsatz'
+  }, [umsatzItems])
+
+  // Aggregation nach Mitarbeiter (Stunden fakturiert/geleistet)
+  const hoursByEmp = useMemo(() => {
     const map = new Map()
     let sumF = 0, sumG = 0
     for (const x of items) {
@@ -85,26 +123,85 @@ export default function TopMitarbeiterTab({ stundenRaw, params }){
     return { arr, sumF, sumG }
   }, [items])
 
-  const topN = 15
-  const top = empTotals.arr.slice(0, topN)
+  // Umsatz auf Mitarbeiter verteilen: auf Projektebene proportional zur fakturierten Stundenverteilung
+  const revenueByEmp = useMemo(() => {
+    // Vorbereitung: Stunden je Projekt und je (Emp,Projekt)
+    const projTotalF = new Map() // projektcode -> total fakt Stunden
+    const empProjF = new Map()   // `${emp}@@${proj}` -> fakt Stunden
+    for (const x of items) {
+      const emp = x?.mitarbeiter || 'Unbekannt'
+      const proj = x?.projektcode || 'Unbekannt'
+      const f = parseFloat(x?.stunden_fakt)
+      const fv = Number.isNaN(f) ? 0 : f
+      projTotalF.set(proj, (projTotalF.get(proj)||0) + fv)
+      const key = `${emp}@@${proj}`
+      empProjF.set(key, (empProjF.get(key)||0) + fv)
+    }
 
-  const barData = useMemo(() => ({
-    labels: top.map(r=>r.mitarbeiter),
-    datasets: [
-      { label: 'Stunden fakturiert', data: top.map(r=>r.fakt), backgroundColor: 'rgba(34,197,94,0.8)', borderRadius: 6 },
-      { label: 'Stunden geleistet', data: top.map(r=>r.gel), backgroundColor: 'rgba(99,102,241,0.35)', borderRadius: 6 },
-    ]
-  }), [top])
+    // Umsätze je Projekt
+    const projRevenue = new Map() // projektcode -> revenue
+    for (const u of umsatzItems) {
+      const proj = u?.projektcode || u?.projekt || 'Unbekannt'
+      const val = toNumberDe(u?.[umsatzMetric])
+      projRevenue.set(proj, (projRevenue.get(proj)||0) + val)
+    }
+
+    // Allokation auf Mitarbeiter
+    const empMap = new Map() // mitarbeiter -> revenue
+    let sumRevenue = 0
+    for (const [proj, rev] of projRevenue.entries()) {
+      const totalF = projTotalF.get(proj) || 0
+      if (totalF <= 0) continue
+      // finde alle Mitarbeiter auf dem Projekt
+      const keys = Array.from(empProjF.keys()).filter(k => k.endsWith(`@@${proj}`))
+      for (const key of keys) {
+        const emp = key.split('@@')[0]
+        const empF = empProjF.get(key) || 0
+        const share = empF / totalF
+        const allocated = rev * share
+        empMap.set(emp, (empMap.get(emp)||0) + allocated)
+        sumRevenue += allocated
+      }
+    }
+    const arr = Array.from(empMap.entries()).map(([mitarbeiter, umsatz]) => ({ mitarbeiter, umsatz }))
+    arr.sort((a,b)=> (b.umsatz||0) - (a.umsatz||0))
+    return { arr, sumRevenue }
+  }, [items, umsatzItems, umsatzMetric])
+
+  const [mode, setMode] = useState('hours') // 'hours' | 'revenue'
+  const topN = 15
+  const topHours = hoursByEmp.arr.slice(0, topN)
+  const topRevenue = revenueByEmp.arr.slice(0, topN)
+
+  const barData = useMemo(() => {
+    if (mode === 'revenue') {
+      return {
+        labels: topRevenue.map(r=>r.mitarbeiter),
+        datasets: [
+          { label: `Umsatz (${umsatzMetric})`, data: topRevenue.map(r=>r.umsatz), backgroundColor: 'rgba(34,197,94,0.8)', borderRadius: 6 },
+        ]
+      }
+    }
+    return {
+      labels: topHours.map(r=>r.mitarbeiter),
+      datasets: [
+        { label: 'Stunden fakturiert', data: topHours.map(r=>r.fakt), backgroundColor: 'rgba(34,197,94,0.8)', borderRadius: 6 },
+        { label: 'Stunden geleistet', data: topHours.map(r=>r.gel), backgroundColor: 'rgba(99,102,241,0.35)', borderRadius: 6 },
+      ]
+    }
+  }, [mode, topHours, topRevenue, umsatzMetric])
 
   // Optional: Anteil Top vs Rest (fakturiert)
   const donutData = useMemo(() => {
-    const topSum = top.reduce((a,x)=>a+Number(x.fakt||0),0)
-    const rest = Math.max(0, (empTotals.sumF||0) - topSum)
-    return {
-      labels: ['Top '+top.length, 'Rest'],
-      datasets: [{ data: [topSum, rest], backgroundColor: ['#22c55e', '#e5e7eb'] }]
+    if (mode === 'revenue') {
+      const topSum = topRevenue.reduce((a,x)=>a+Number(x.umsatz||0),0)
+      const rest = Math.max(0, (revenueByEmp.sumRevenue||0) - topSum)
+      return { labels: ['Top '+topRevenue.length, 'Rest'], datasets: [{ data:[topSum,rest], backgroundColor:['#22c55e','#e5e7eb'] }] }
     }
-  }, [top, empTotals.sumF])
+    const topSum = topHours.reduce((a,x)=>a+Number(x.fakt||0),0)
+    const rest = Math.max(0, (hoursByEmp.sumF||0) - topSum)
+    return { labels: ['Top '+topHours.length, 'Rest'], datasets: [{ data:[topSum,rest], backgroundColor:['#22c55e','#e5e7eb'] }] }
+  }, [mode, topHours, topRevenue, revenueByEmp.sumRevenue, hoursByEmp.sumF])
 
   return (
     <div>
@@ -112,36 +209,59 @@ export default function TopMitarbeiterTab({ stundenRaw, params }){
         <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
           <h3 style={{ margin: 0 }}>Top-Mitarbeiter</h3>
           <div style={{ flex:1 }} />
+          <label style={{ color:'var(--muted)', fontSize:12 }}>Anzeige</label>
+          <select className="input" value={mode} onChange={(e)=>setMode(e.target.value)}>
+            <option value="hours">Stunden</option>
+            <option value="revenue">Umsatz</option>
+          </select>
+          {mode==='revenue' && (
+            <>
+              <label style={{ color:'var(--muted)', fontSize:12 }}>Metrik</label>
+              <select className="input" value={umsatzMetric} onChange={()=>{ /* metric is derived from data; keep immutable for now */ }} disabled>
+                <option value={umsatzMetric}>{umsatzMetric}</option>
+              </select>
+            </>
+          )}
           <label style={{ color:'var(--muted)', fontSize:12 }}>
             <input type="checkbox" checked={useYtd} onChange={(e)=>setUseYtd(e.target.checked)} style={{ marginRight: 6 }} /> Laufendes Jahr (YTD)
           </label>
           <button className="btn" onClick={() => exportGenericCsv(
             [
               { key:'mitarbeiter', label:'Mitarbeiter' },
-              { key:'fakt', label:'Stunden_fakt' },
-              { key:'gel', label:'Stunden_gel' },
+              ...(mode==='revenue' ? [ { key:'umsatz', label:`${umsatzMetric}` } ] : [ { key:'fakt', label:'Stunden_fakt' }, { key:'gel', label:'Stunden_gel' } ]),
             ],
-            empTotals.arr,
+            mode==='revenue' ? revenueByEmp.arr : hoursByEmp.arr,
             'top_mitarbeiter'
           )}>Export CSV</button>
         </div>
 
         <div className="kpi-grid">
-          <div className="panel kpi-card"><div className="kpi-title">Summe fakturiert</div><div className="kpi-value">{`${fmt(empTotals.sumF)} h`}</div></div>
-          <div className="panel kpi-card"><div className="kpi-title">Summe geleistet</div><div className="kpi-value">{`${fmt(empTotals.sumG)} h`}</div></div>
-          <div className="panel kpi-card"><div className="kpi-title">Top 1</div><div className="kpi-value">{top[0]? `${top[0].mitarbeiter} · ${fmt(top[0].fakt)} h` : '—'}</div></div>
-          <div className="panel kpi-card"><div className="kpi-title">Anzahl Mitarbeiter</div><div className="kpi-value">{fmt(empTotals.arr.length)}</div></div>
+          {mode==='revenue' ? (
+            <>
+              <div className="panel kpi-card"><div className="kpi-title">Summe Umsatz</div><div className="kpi-value">{`${fmt(revenueByEmp.sumRevenue)} €`}</div></div>
+              <div className="panel kpi-card"><div className="kpi-title">Top 1</div><div className="kpi-value">{topRevenue[0]? `${topRevenue[0].mitarbeiter} · ${fmt(topRevenue[0].umsatz)} €` : '—'}</div></div>
+              <div className="panel kpi-card"><div className="kpi-title">Anzahl Mitarbeiter</div><div className="kpi-value">{fmt(revenueByEmp.arr.length)}</div></div>
+              <div className="panel kpi-card"><div className="kpi-title">Metrik</div><div className="kpi-value">{umsatzMetric}</div></div>
+            </>
+          ) : (
+            <>
+              <div className="panel kpi-card"><div className="kpi-title">Summe fakturiert</div><div className="kpi-value">{`${fmt(hoursByEmp.sumF)} h`}</div></div>
+              <div className="panel kpi-card"><div className="kpi-title">Summe geleistet</div><div className="kpi-value">{`${fmt(hoursByEmp.sumG)} h`}</div></div>
+              <div className="panel kpi-card"><div className="kpi-title">Top 1</div><div className="kpi-value">{topHours[0]? `${topHours[0].mitarbeiter} · ${fmt(topHours[0].fakt)} h` : '—'}</div></div>
+              <div className="panel kpi-card"><div className="kpi-title">Anzahl Mitarbeiter</div><div className="kpi-value">{fmt(hoursByEmp.arr.length)}</div></div>
+            </>
+          )}
         </div>
 
         <div className="grid">
           <div>
             <div className="chart-lg">
-              <Bar data={barData} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' }, title:{ display:true, text:`Top ${topN} nach fakturierten Stunden` } }, scales:{ y:{ beginAtZero:true } } }} />
+              <Bar data={barData} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'top' }, title:{ display:true, text: mode==='revenue' ? `Top ${topN} nach Umsatz (${umsatzMetric})` : `Top ${topN} nach fakturierten Stunden` } }, scales:{ y:{ beginAtZero:true } } }} />
             </div>
           </div>
           <div>
             <div className="chart">
-              <Doughnut data={donutData} options={{ maintainAspectRatio:false, plugins:{ legend:{ position:'right' }, title:{ display:true, text:'Top vs. Rest (Fakt)' } } }} />
+              <Doughnut data={donutData} options={{ maintainAspectRatio:false, plugins:{ legend:{ position:'right' }, title:{ display:true, text: mode==='revenue' ? 'Top vs. Rest (Umsatz)' : 'Top vs. Rest (Fakt)' } } }} />
             </div>
           </div>
         </div>
@@ -152,18 +272,36 @@ export default function TopMitarbeiterTab({ stundenRaw, params }){
             <thead>
               <tr>
                 <th>Mitarbeiter</th>
-                <th className="right">Stunden fakturiert</th>
-                <th className="right">Stunden geleistet</th>
-                <th className="right">Quote F/G</th>
+                {mode==='revenue' ? (
+                  <>
+                    <th className="right">Umsatz ({umsatzMetric})</th>
+                    <th className="right">Stunden fakt (Ref)</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="right">Stunden fakturiert</th>
+                    <th className="right">Stunden geleistet</th>
+                    <th className="right">Quote F/G</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
-              {empTotals.arr.map((r)=> (
+              {(mode==='revenue' ? revenueByEmp.arr : hoursByEmp.arr).map((r)=> (
                 <tr key={r.mitarbeiter}>
                   <td>{r.mitarbeiter}</td>
-                  <td className="right">{fmt(r.fakt)}</td>
-                  <td className="right">{fmt(r.gel)}</td>
-                  <td className="right">{r.gel>0? `${((r.fakt/r.gel)*100).toFixed(1)}%` : '—'}</td>
+                  {mode==='revenue' ? (
+                    <>
+                      <td className="right">{fmt(r.umsatz)}</td>
+                      <td className="right">{fmt((hoursByEmp.arr.find(x=>x.mitarbeiter===r.mitarbeiter)?.fakt)||0)}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="right">{fmt(r.fakt)}</td>
+                      <td className="right">{fmt(r.gel)}</td>
+                      <td className="right">{r.gel>0? `${((r.fakt/r.gel)*100).toFixed(1)}%` : '—'}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
