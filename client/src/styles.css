@@ -89,12 +89,30 @@ body{
 .row-good td{ background: rgba(34,197,94,0.06) }
 
 .tabs{
-  display:flex; gap:8px; border-bottom:1px solid var(--border); margin-bottom:12px; overflow-x:auto; white-space:nowrap
+  display:flex;
+  flex-direction: row; /* enforce horizontal */
+  gap:8px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:12px;
+  overflow-x:auto;
+  white-space:nowrap;
+  scroll-snap-type: x mandatory;           /* smooth horizontal snapping */
+  -webkit-overflow-scrolling: touch;       /* momentum scrolling on iOS */
 }
 .tab{
-  padding:10px 12px; border:1px solid var(--border); border-bottom:none; border-radius:12px 12px 0 0; cursor:pointer; color:var(--muted); flex:0 0 auto
+  display: inline-flex; /* avoid block-level full width */
+  align-items: center;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-bottom:none;
+  border-radius:12px 12px 0 0;
+  cursor:pointer;
+  color:var(--muted);
+  flex:0 0 auto;
+  scroll-snap-align: start;
 }
 .tab:hover{ color:var(--text) }
+.tab:focus-visible{ outline:2px solid var(--primary); outline-offset:2px }
 .tab.active{ color:var(--text); background:#0e1733 }
 
 .grid{ display:grid; grid-template-columns:1.2fr 1fr; gap:16px }
