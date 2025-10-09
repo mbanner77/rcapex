@@ -84,6 +84,7 @@ export default function TopMitarbeiterTab({ stundenRaw, umsatzRaw, params }){
       if (out.projektcode == null && out.projekt != null) out.projektcode = out.projekt
       if (out.umsatz == null && out.umsatz_tatsaechlich != null) out.umsatz = out.umsatz_tatsaechlich
       if (out.umsatz_tatsaechlich == null && out.umsatz != null) out.umsatz_tatsaechlich = out.umsatz
+      if (out.kunde == null && out.kundenname != null) out.kunde = out.kundenname
       return out
     })
     // Wichtig: Umsatzliste ist serverseitig bereits nach Zeitraum gefiltert.
@@ -120,45 +121,118 @@ export default function TopMitarbeiterTab({ stundenRaw, umsatzRaw, params }){
     return { arr, sumF, sumG }
   }, [items])
 
-  // Umsatz auf Mitarbeiter verteilen: auf Projektebene proportional zur fakturierten Stundenverteilung
+  // Umsatz auf Mitarbeiter verteilen: Primär je Projekt nach fakturierten Stunden.
+  // Fallbacks: (2) geleistete Stunden je Projekt, (3) fakt Stunden je Kunde, (4) global nach fakt Stunden.
   const revenueByEmp = useMemo(() => {
     // Vorbereitung: Stunden je Projekt und je (Emp,Projekt)
     const projTotalF = new Map() // projektcode -> total fakt Stunden
     const empProjF = new Map()   // `${emp}@@${proj}` -> fakt Stunden
+    const projTotalG = new Map() // projektcode -> total geleistet
+    const empProjG = new Map()   // `${emp}@@${proj}` -> geleistet
+    const custTotalF = new Map() // kunde -> total fakt
+    const empCustF = new Map()   // `${emp}@@${kunde}` -> fakt
+    let globalF = 0
     for (const x of items) {
       const emp = x?.mitarbeiter || 'Unbekannt'
       const proj = x?.projektcode || 'Unbekannt'
+      const cust = x?.kunde || 'Unbekannt'
       const f = parseFloat(x?.stunden_fakt)
       const fv = Number.isNaN(f) ? 0 : f
+      const g = parseFloat(x?.stunden_gel)
+      const gv = Number.isNaN(g) ? 0 : g
       projTotalF.set(proj, (projTotalF.get(proj)||0) + fv)
       const key = `${emp}@@${proj}`
       empProjF.set(key, (empProjF.get(key)||0) + fv)
+      projTotalG.set(proj, (projTotalG.get(proj)||0) + gv)
+      empProjG.set(key, (empProjG.get(key)||0) + gv)
+      custTotalF.set(cust, (custTotalF.get(cust)||0) + fv)
+      const ck = `${emp}@@${cust}`
+      empCustF.set(ck, (empCustF.get(ck)||0) + fv)
+      globalF += fv
     }
 
     // Umsätze je Projekt
     const projRevenue = new Map() // projektcode -> revenue
+    const custRevenue = new Map() // kunde -> revenue (zur Sicherheit)
     for (const u of umsatzItems) {
       const proj = u?.projektcode || u?.projekt || 'Unbekannt'
       const val = toNumberDe(u?.[umsatzMetric])
       projRevenue.set(proj, (projRevenue.get(proj)||0) + val)
+      const cust = u?.kunde || 'Unbekannt'
+      custRevenue.set(cust, (custRevenue.get(cust)||0) + val)
     }
 
     // Allokation auf Mitarbeiter
     const empMap = new Map() // mitarbeiter -> revenue
     let sumRevenue = 0
     for (const [proj, rev] of projRevenue.entries()) {
-      const totalF = projTotalF.get(proj) || 0
-      if (totalF <= 0) continue
-      // finde alle Mitarbeiter auf dem Projekt
-      const keys = Array.from(empProjF.keys()).filter(k => k.endsWith(`@@${proj}`))
-      for (const key of keys) {
-        const emp = key.split('@@')[0]
-        const empF = empProjF.get(key) || 0
-        const share = empF / totalF
-        const allocated = rev * share
-        empMap.set(emp, (empMap.get(emp)||0) + allocated)
-        sumRevenue += allocated
+      let allocated = 0
+      let keys = []
+      let denom = 0
+      // (1) Projekt nach fakt
+      denom = projTotalF.get(proj) || 0
+      if (denom > 0) {
+        keys = Array.from(empProjF.keys()).filter(k => k.endsWith(`@@${proj}`))
+        for (const key of keys) {
+          const emp = key.split('@@')[0]
+          const empF = empProjF.get(key) || 0
+          const share = empF / denom
+          const part = rev * share
+          empMap.set(emp, (empMap.get(emp)||0) + part)
+          allocated += part
+        }
+      } else {
+        // (2) Projekt nach geleistet
+        denom = projTotalG.get(proj) || 0
+        if (denom > 0) {
+          keys = Array.from(empProjG.keys()).filter(k => k.endsWith(`@@${proj}`))
+          for (const key of keys) {
+            const emp = key.split('@@')[0]
+            const empG = empProjG.get(key) || 0
+            const share = empG / denom
+            const part = rev * share
+            empMap.set(emp, (empMap.get(emp)||0) + part)
+            allocated += part
+          }
+        }
       }
+      // (3) Falls noch nicht verteilt (z. B. Projektcode mismatch), versuche Kunde
+      if (allocated < rev * 0.9999) {
+        // finde Kunde des Umsatzdatensatzes
+        // Wir approximieren über höchste Kundenzuordnung aus items für dieses Projekt
+        // oder nutzen direkten Kunde aus Umsatz falls vorhanden
+        const possibleCust = Array.from(new Set([
+          ...items.filter(x => (x?.projektcode||'Unbekannt') === proj).map(x=>x?.kunde||'Unbekannt'),
+          ...[...custRevenue.keys()]
+        ]))
+        let distributed = false
+        for (const cust of possibleCust) {
+          const denomCust = custTotalF.get(cust) || 0
+          if (denomCust > 0) {
+            for (const [key, val] of empCustF.entries()) {
+              const [emp, c] = key.split('@@')
+              if (c !== cust) continue
+              const share = val / denomCust
+              const part = rev * share
+              empMap.set(emp, (empMap.get(emp)||0) + part)
+              allocated += part
+            }
+            distributed = true
+            break
+          }
+        }
+        // (4) Finaler Fallback: global nach fakt Stunden
+        if (!distributed && globalF > 0) {
+          for (const [key, val] of empCustF.entries()) {
+            const emp = key.split('@@')[0]
+            const share = val / globalF
+            const part = rev * share
+            empMap.set(emp, (empMap.get(emp)||0) + part)
+            allocated += part
+          }
+        }
+      }
+      sumRevenue += Math.min(allocated, rev)
     }
     const arr = Array.from(empMap.entries()).map(([mitarbeiter, umsatz]) => ({ mitarbeiter, umsatz }))
     arr.sort((a,b)=> (b.umsatz||0) - (a.umsatz||0))
