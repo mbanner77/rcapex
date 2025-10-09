@@ -13,6 +13,7 @@ import ComparisonTab from './components/ComparisonTab.jsx'
 import TrendTab from './components/TrendTab.jsx'
 import EmployeeTab from './components/EmployeeTab.jsx'
 import TimesheetsTab from './components/TimesheetsTab.jsx'
+import TopMitarbeiterTab from './components/TopMitarbeiterTab.jsx'
 import { exportCustomersCsv, exportProjectsCsv } from './lib/export'
 import Login from './components/Login.jsx'
 import PasswordGate from './components/PasswordGate.jsx'
@@ -36,7 +37,7 @@ const DEFAULTS = {
 export default function App() {
   const [gate, setGate] = useState(false)
   const [auth, setAuth] = useState({ checked: false, loggedIn: false, username: null })
-  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog' | 'timesheets'
+  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'top_employees' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog' | 'timesheets'
   const [params, setParams] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('rc_params') || 'null')
@@ -171,6 +172,7 @@ export default function App() {
               <option value="overview">Übersicht</option>
               <option value="analytics">Analytik</option>
               <option value="employee">Mitarbeiter</option>
+              <option value="top_employees">Top-Mitarbeiter</option>
               <option value="compare">Vergleich</option>
               <option value="trends">Trends</option>
               <option value="umsatzliste">Umsatzliste</option>
@@ -183,6 +185,7 @@ export default function App() {
             <div className={`tab ${tab==='overview' ? 'active' : ''}`} onClick={() => setTab('overview')}>Übersicht</div>
             <div className={`tab ${tab==='analytics' ? 'active' : ''}`} onClick={() => setTab('analytics')}>Analytik</div>
             <div className={`tab ${tab==='employee' ? 'active' : ''}`} onClick={() => setTab('employee')}>Mitarbeiter</div>
+            <div className={`tab ${tab==='top_employees' ? 'active' : ''}`} onClick={() => setTab('top_employees')}>Top-Mitarbeiter</div>
             <div className={`tab ${tab==='compare' ? 'active' : ''}`} onClick={() => setTab('compare')}>Vergleich</div>
             <div className={`tab ${tab==='trends' ? 'active' : ''}`} onClick={() => setTab('trends')}>Trends</div>
             <div className={`tab ${tab==='umsatzliste' ? 'active' : ''}`} onClick={() => setTab('umsatzliste')}>Umsatzliste</div>
@@ -214,6 +217,10 @@ export default function App() {
 
           {tab === 'employee' && !loading && kundenAgg && (
             <EmployeeTab stundenRaw={stundenRaw} params={params} />
+          )}
+
+          {tab === 'top_employees' && !loading && kundenAgg && (
+            <TopMitarbeiterTab stundenRaw={stundenRaw} params={params} />
           )}
 
           {tab === 'compare' && !loading && kundenAgg && (
