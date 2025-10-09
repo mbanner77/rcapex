@@ -86,13 +86,10 @@ export default function TopMitarbeiterTab({ stundenRaw, umsatzRaw, params }){
       if (out.umsatz_tatsaechlich == null && out.umsatz != null) out.umsatz_tatsaechlich = out.umsatz
       return out
     })
-    return norm.filter((x)=>{
-      const d = x?.datum || x?.datum_bis || x?.datum_von || x?.date
-      if (!d || !inRange(d)) return false
-      if (isInternal(x, mapping)) return false
-      return true
-    })
-  }, [umsatzItemsRaw, mapping, useYtd, params?.datum_von, params?.datum_bis])
+    // Wichtig: Umsatzliste ist serverseitig bereits nach Zeitraum gefiltert.
+    // Keine zusätzliche Datumsfilterung hier, da viele Zeilen kein Datum tragen.
+    return norm.filter((x)=> !isInternal(x, mapping))
+  }, [umsatzItemsRaw, mapping])
 
   // Umsatz-Metrik wählen
   const umsatzMetric = useMemo(() => {
