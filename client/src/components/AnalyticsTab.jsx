@@ -42,6 +42,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const items = useMemo(() => stundenRaw?.items || stundenRaw || [], [stundenRaw])
   const customersList = useMemo(() => listCustomersFromItems(items), [items])
   const [aiInsights, setAiInsights] = useState({ status: 'idle', summary: '', entries: [], generatedAt: null })
+  const [insightFilters, setInsightFilters] = useState({ riskOnly: false, minShare: 15 })
 
   // Controls
   const [metric, setMetric] = useState('stunden_fakt') // 'stunden_fakt' | 'stunden_gel'
@@ -350,14 +351,24 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     <div className="grid">
       <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-          <strong>KI-Einblicke</strong>
-          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-            <button className="btn" onClick={generateAiInsights} disabled={aiInsights.status === 'loading'}>
-              {aiInsights.status === 'loading' ? 'Analysiere…' : 'Analyse starten'}
-            </button>
+          <div style={{ display:'flex', flexDirection:'column' }}>
+            <strong>KI-Einblicke</strong>
             {aiInsights.status === 'ready' && aiInsights.generatedAt && (
               <span style={{ color:'var(--muted)', fontSize:12 }}>Aktualisiert: {aiInsights.generatedAt.toLocaleString('de-DE')}</span>
             )}
+          </div>
+          <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:4, fontSize:12 }}>
+              <input type="checkbox" checked={insightFilters.riskOnly} onChange={(e)=>setInsightFilters((prev)=>({ ...prev, riskOnly: e.target.checked }))} />
+              Nur Risiken
+            </label>
+            <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12 }}>
+              Mindestanteil %
+              <input className="input" type="number" min="0" max="100" value={insightFilters.minShare} onChange={(e)=>setInsightFilters((prev)=>({ ...prev, minShare: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))} style={{ width: 70 }} />
+            </label>
+            <button className="btn" onClick={generateAiInsights} disabled={aiInsights.status === 'loading'}>
+              {aiInsights.status === 'loading' ? 'Analysiere…' : 'Analyse starten'}
+            </button>
           </div>
         </div>
         {aiInsights.status === 'idle' && (
@@ -373,24 +384,46 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           <div style={{ display:'grid', gap:10 }}>
             <div style={{ lineHeight:1.5 }}>{aiInsights.summary}</div>
             <div style={{ display:'grid', gap:8 }}>
-              {aiInsights.entries.map((entry) => {
+              {aiInsights.entries
+                .filter((entry) => {
+                  if (insightFilters.riskOnly && entry.type !== 'Risk') return false
+                  if (entry.value && entry.value.endsWith('%')) {
+                    const val = Number(entry.value.replace('%',''))
+                    if (!Number.isNaN(val) && val < insightFilters.minShare) return false
+                  }
+                  return true
+                })
+                .map((entry) => {
                 const meta = INSIGHT_TYPE_META[entry.type] || INSIGHT_TYPE_META.Info || { background:'rgba(71, 85, 105, 0.12)', color:'#475569' }
                 return (
-                  <div key={entry.id} style={{ padding:12, borderRadius:10, background:meta.background, border:`1px solid ${meta.color}20`, display:'flex', flexDirection:'column', gap:4 }}>
+                  <div key={entry.id} style={{ padding:12, borderRadius:14, background:meta.background, border:`1px solid ${meta.color}22`, display:'flex', flexDirection:'column', gap:6, boxShadow:'0 4px 10px rgba(15,23,42,0.12)' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
-                      <span style={{ fontWeight:600, color:meta.color }}>{entry.type}</span>
+                      <span style={{ fontWeight:700, color:meta.color, letterSpacing:0.2 }}>{entry.type}</span>
                       {entry.value && (
-                        <span style={{ fontSize:12, fontWeight:600, color:meta.color, background:`${meta.color}18`, padding:'2px 8px', borderRadius:999 }}>{entry.value}</span>
+                        <span style={{ fontSize:12, fontWeight:600, color:meta.color, background:`${meta.color}1c`, padding:'2px 10px', borderRadius:999 }}>{entry.value}</span>
                       )}
                     </div>
-                    <div style={{ fontWeight:600 }}>{entry.title}</div>
-                    <div style={{ color:'var(--muted)' }}>{entry.detail}</div>
+                    <div style={{ fontWeight:700, fontSize:15 }}>{entry.title}</div>
+                    <div style={{ color:'var(--muted)', lineHeight:1.45 }}>{entry.detail}</div>
                     {entry.meta && (
-                      <div style={{ fontSize:12, color:meta.color }}>Betroffen: {entry.meta}</div>
+                      <div style={{ fontSize:12, color:meta.color, display:'flex', gap:6, alignItems:'center' }}>
+                        <span role="img" aria-hidden="true">🎯</span>
+                        <span>Betroffen: {entry.meta}</span>
+                      </div>
                     )}
                   </div>
                 )
               })}
+              {aiInsights.entries.length > 0 && aiInsights.entries.filter((entry) => {
+                if (insightFilters.riskOnly && entry.type !== 'Risk') return false
+                if (entry.value && entry.value.endsWith('%')) {
+                  const val = Number(entry.value.replace('%',''))
+                  if (!Number.isNaN(val) && val < insightFilters.minShare) return false
+                }
+                return true
+              }).length === 0 && (
+                <div style={{ color:'var(--muted)', fontStyle:'italic' }}>Keine Einblicke passen zu den aktuellen Filtern.</div>
+              )}
             </div>
           </div>
         )}
