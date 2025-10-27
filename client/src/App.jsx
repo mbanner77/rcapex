@@ -36,7 +36,14 @@ const DEFAULTS = {
 export default function App() {
   const [gate, setGate] = useState(false)
   const [auth, setAuth] = useState({ checked: false, loggedIn: false, username: null })
-  const [tab, setTab] = useState('overview') // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog' | 'timesheets'
+  const [tab, setTab] = useState(() => {
+    try {
+      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('rc_activeTab') : null
+      return saved || 'overview'
+    } catch (_) {
+      return 'overview'
+    }
+  }) // 'overview' | 'analytics' | 'employee' | 'compare' | 'trends' | 'umsatzliste' | 'watchdog' | 'timesheets'
   const [params, setParams] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('rc_params') || 'null')
@@ -50,6 +57,14 @@ export default function App() {
   const [umsatzRaw, setUmsatzRaw] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showSchedules, setShowSchedules] = useState(false)
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('rc_activeTab', tab)
+      }
+    } catch (_) {}
+  }, [tab])
 
   // Check session on load
   useEffect(() => {
@@ -159,7 +174,7 @@ export default function App() {
       </div>
 
       <div className="panel">
-        <Filters params={params} onParamsChange={setParams} />
+        <Filters params={params} onParamsChange={setParams} defaults={DEFAULTS} />
 
         <div className="content">
           {loading && <div>Loading…</div>}

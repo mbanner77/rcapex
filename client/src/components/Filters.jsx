@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import { getUnits } from '../lib/constants'
 import { Sparkles, Calendar, TrendingUp } from 'lucide-react'
 
-export default function Filters({ params, onParamsChange }) {
+export default function Filters({ params, onParamsChange, defaults = null }) {
   function update(key, value) {
     onParamsChange((p) => ({ ...p, [key]: value }))
   }
@@ -21,6 +21,17 @@ export default function Filters({ params, onParamsChange }) {
     if (params.unit === 'ALL') return 'ALL'
     return unitOptions.find(u => u.ext_id === params.unit)?.ext_id || ''
   }, [unitOptions, params.unit])
+
+  const resetDisabled = useMemo(() => {
+    if (!defaults) return false
+    const keys = ['datum_von', 'datum_bis', 'unit']
+    return keys.every((key) => {
+      const defVal = defaults[key]
+      const paramVal = params[key]
+      if (defVal instanceof Date) return paramVal instanceof Date && paramVal.getTime() === defVal.getTime()
+      return String(paramVal ?? '') === String(defVal ?? '')
+    })
+  }, [defaults, params])
 
   // AI-gestützte Vorschläge generieren
   function generateAiSuggestions() {
@@ -188,12 +199,21 @@ export default function Filters({ params, onParamsChange }) {
 
         <div className="filters-actions">
           <label style={{ fontSize: 12, color: 'var(--muted)' }}>Schnellauswahl</label>
-          <div className="filters-actions">
+          <div className="filters-actions" style={{ gap: 8 }}>
             <button className="btn" onClick={handleToday}>Heute</button>
             <button className="btn" onClick={() => handleLastDays(7)}>Letzte 7 Tage</button>
             <button className="btn" onClick={handleThisMonth}>Dieser Monat</button>
             <button className="btn" onClick={handleLastMonth}>Letzter Monat</button>
             <button className="btn" onClick={handleThisQuarter}>Quartal</button>
+            <button
+              className="btn"
+              onClick={() => {
+                if (!defaults) return
+                onParamsChange(() => ({ ...defaults }))
+              }}
+              disabled={resetDisabled}
+              title={defaults ? 'Filter auf Standardwerte zurücksetzen' : 'Kein Standard definiert'}
+            >Zurücksetzen</button>
           </div>
         </div>
 

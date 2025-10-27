@@ -33,6 +33,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const projectsList = useMemo(() => listProjectsFromKunden(kunden), [kunden])
   const items = useMemo(() => stundenRaw?.items || stundenRaw || [], [stundenRaw])
   const customersList = useMemo(() => listCustomersFromItems(items), [items])
+  const [aiInsights, setAiInsights] = useState({ status: 'idle', summary: '', bullets: [], generatedAt: null })
 
   // Controls
   const [metric, setMetric] = useState('stunden_fakt') // 'stunden_fakt' | 'stunden_gel'
@@ -45,6 +46,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const [labelThreshold, setLabelThreshold] = useState(6) // min % for inline labels
   const [sortMode, setSortMode] = useState('hours_desc') // 'hours_desc' | 'alpha'
   const [limitCount, setLimitCount] = useState(0) // 0 = all
+
+  const monthlyTotals = useMemo(() => computeMonthlyTotals(items, metric), [items, metric])
+  const metricLabel = metric === 'stunden_fakt' ? 'fakturierten Stunden' : 'geleisteten Stunden'
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -129,7 +133,8 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   }
 
   // Employees bar and Customer distribution donut
-  const employeesTop = useMemo(() => employeeTotalsFromItems(items, metric).slice(0, 15), [items, metric])
+  const employeeTotals = useMemo(() => employeeTotalsFromItems(items, metric), [items, metric])
+  const employeesTop = useMemo(() => employeeTotals.slice(0, 15), [employeeTotals])
   const employeesBar = useMemo(() => ({
     labels: employeesTop.map((e) => e.mitarbeiter),
     datasets: [{ label: metric === 'stunden_fakt' ? 'Fakturiert' : 'Geleistet', data: employeesTop.map((e) => e.sum), backgroundColor: 'rgba(99, 102, 241, 0.7)', borderRadius: 6 }]
@@ -252,8 +257,90 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
     return palette[Math.abs(h)%palette.length]
   }
 
+  function generateAiInsights(){
+    if (!items.length) {
+      setAiInsights({ status: 'error', summary: 'Keine Datensätze für die Analyse vorhanden.', bullets: [], generatedAt: null })
+      return
+    }
+    setAiInsights({ status: 'loading', summary: '', bullets: [], generatedAt: null })
+    window.setTimeout(() => {
+      try {
+        const totalHours = monthlyTotals.reduce((acc, cur) => acc + Number(cur.total || 0), 0)
+        if (!totalHours) {
+          setAiInsights({ status: 'error', summary: 'Die aktuelle Auswahl enthält keine Stundenwerte.', bullets: [], generatedAt: null })
+          return
+        }
+
+        const trendBullets = buildTrendBullets(monthlyTotals, metricLabel)
+
+        const sortedCustomers = [...kunden].sort((a, b) => (Number(b?.[metric] || 0) - Number(a?.[metric] || 0)))
+        const topCustomer = sortedCustomers[0]
+        const customerShare = topCustomer ? (Number(topCustomer?.[metric] || 0) / totalHours) * 100 : 0
+
+        const projectTotals = projectTotalsFromKunden(kunden)
+        const sortedProjects = [...projectTotals].sort((a, b) => (Number(b?.[metric] || 0) - Number(a?.[metric] || 0)))
+        const topProject = sortedProjects[0]
+        const projectShare = topProject ? (Number(topProject?.[metric] || 0) / totalHours) * 100 : 0
+
+        const topEmployee = employeeTotals[0]
+        const topEmployeeShare = topEmployee ? (Number(topEmployee?.sum || 0) / totalHours) * 100 : 0
+
+        const focusEmployees = empSegments.filter((row) => row.segments.length && row.segments[0].pct >= 0.7).slice(0, 3)
+        const avgPerEmployee = employeeTotals.length ? totalHours / employeeTotals.length : 0
+        const lowEmployees = [...employeeTotals].reverse().filter((entry) => entry.sum > 0 && entry.sum < avgPerEmployee * 0.4).slice(0, 3)
+
+        const bullets = [
+          ...trendBullets,
+          topCustomer ? `Top-Kunde: ${topCustomer.kunde} hält ${customerShare.toFixed(1)}% der ${metricLabel}.` : null,
+          topProject ? `Top-Projekt: ${topProject.projektcode || 'unbekannt'} bündelt ${projectShare.toFixed(1)}% der ${metricLabel}.` : null,
+          topEmployee ? `Engpass-Risiko: ${topEmployee.mitarbeiter} verantwortet ${topEmployeeShare.toFixed(1)}% aller ${metricLabel}.` : null,
+          focusEmployees.length ? `Hohe Projekt-Fokussierung bei ${focusEmployees.map((row) => `${row.employee} (${Math.round(row.segments[0].pct*100)}% auf ${row.segments[0].name})`).join(', ')}.` : null,
+          lowEmployees.length ? `Auffällige Unterauslastung bei ${lowEmployees.map((entry) => `${entry.mitarbeiter} (${entry.sum.toFixed(1)} h)`).join(', ')}.` : null,
+        ].filter(Boolean)
+
+        const summary = `KI-Analyse der ${metricLabel} über ${monthlyTotals.length} Monate. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
+        setAiInsights({ status: 'ready', summary, bullets, generatedAt: new Date() })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Analyse.'
+        setAiInsights({ status: 'error', summary: message, bullets: [], generatedAt: null })
+      }
+    }, 120)
+  }
+
   return (
     <div className="grid">
+      <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+          <strong>KI-Einblicke</strong>
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+            <button className="btn" onClick={generateAiInsights} disabled={aiInsights.status === 'loading'}>
+              {aiInsights.status === 'loading' ? 'Analysiere…' : 'Analyse starten'}
+            </button>
+            {aiInsights.status === 'ready' && aiInsights.generatedAt && (
+              <span style={{ color:'var(--muted)', fontSize:12 }}>Aktualisiert: {aiInsights.generatedAt.toLocaleString('de-DE')}</span>
+            )}
+          </div>
+        </div>
+        {aiInsights.status === 'idle' && (
+          <div style={{ color:'var(--muted)' }}>Lasse die KI eine Management-Zusammenfassung erstellen, um Chancen und Risiken schneller zu erkennen.</div>
+        )}
+        {aiInsights.status === 'loading' && (
+          <div style={{ color:'var(--muted)' }}>Die Daten werden ausgewertet…</div>
+        )}
+        {aiInsights.status === 'error' && (
+          <div style={{ color:'crimson' }}>{aiInsights.summary}</div>
+        )}
+        {aiInsights.status === 'ready' && (
+          <div style={{ display:'grid', gap:10 }}>
+            <div style={{ lineHeight:1.5 }}>{aiInsights.summary}</div>
+            <ul style={{ margin:0, paddingLeft:18, display:'grid', gap:6 }}>
+              {aiInsights.bullets.map((line, idx) => (
+                <li key={idx} style={{ color:'var(--fg)' }}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
       {/* First: Full-width segmented visualization with filter */}
       <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
         <div style={{ position:'sticky', top:0, zIndex:1, background:'var(--panel)', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, paddingBottom:8 }}>
@@ -417,4 +504,62 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
       </div>
     </div>
   )
+}
+
+export function computeMonthlyTotals(items, metricKey) {
+  const map = new Map()
+  for (const entry of items || []) {
+    const d = entry?.datum || entry?.datum_bis || entry?.datum_von || entry?.date
+    if (!d) continue
+    const dt = new Date(d)
+    if (Number.isNaN(dt.getTime())) continue
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+    const val = Number(entry?.[metricKey] || 0)
+    if (!Number.isFinite(val)) continue
+    map.set(key, (map.get(key) || 0) + val)
+  }
+  const arr = Array.from(map.entries()).map(([month, total]) => ({ month, total }))
+  arr.sort((a, b) => a.month.localeCompare(b.month))
+  return arr
+}
+
+export function formatMonthLabel(month) {
+  try {
+    const [year, mon] = month.split('-').map(Number)
+    const formatter = new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric' })
+    return formatter.format(new Date(year, (mon || 1) - 1, 1))
+  } catch (_) {
+    return month
+  }
+}
+
+export function buildTrendBullets(monthlyTotals, metricLabel) {
+  if (!monthlyTotals.length) return ['Keine Zeitreihen-Daten gefunden.']
+  if (monthlyTotals.length === 1) {
+    const label = formatMonthLabel(monthlyTotals[0].month)
+    const value = Number(monthlyTotals[0].total || 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    return [`Nur ein Monat verfügbar (${label}) mit insgesamt ${value} ${metricLabel}.`]
+  }
+  const bullets = []
+  const last = monthlyTotals[monthlyTotals.length - 1]
+  const prev = monthlyTotals[monthlyTotals.length - 2]
+  const diff = Number(last.total || 0) - Number(prev.total || 0)
+  const diffPct = prev.total ? (diff / prev.total) * 100 : 0
+  const trendLabel = diff >= 0 ? 'Steigerung' : 'Rückgang'
+  bullets.push(`${trendLabel} von ${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h (${diffPct.toFixed(1)}%) im Monat ${formatMonthLabel(last.month)} gegenüber ${formatMonthLabel(prev.month)}.`)
+
+  let strongestDelta = { value: 0, month: last.month, prev: prev.month }
+  for (let i = 1; i < monthlyTotals.length; i++) {
+    const current = monthlyTotals[i]
+    const previous = monthlyTotals[i - 1]
+    const delta = Number(current.total || 0) - Number(previous.total || 0)
+    if (Math.abs(delta) > Math.abs(strongestDelta.value)) {
+      strongestDelta = { value: delta, month: current.month, prev: previous.month }
+    }
+  }
+  if (Math.abs(strongestDelta.value) > Math.abs(diff)) {
+    const label = strongestDelta.value >= 0 ? 'größte Steigerung' : 'stärkster Rückgang'
+    bullets.push(`Historische ${label}: ${formatMonthLabel(strongestDelta.month)} vs. ${formatMonthLabel(strongestDelta.prev)} mit ${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h Differenz.`)
+  }
+  return bullets
 }
