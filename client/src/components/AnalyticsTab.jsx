@@ -28,12 +28,20 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, PointElement, LineElement, Title, Tooltip, Legend)
 
+const INSIGHT_TYPE_META = {
+  Trend: { background: 'rgba(37, 99, 235, 0.08)', color: '#1d4ed8' },
+  Risk: { background: 'rgba(239, 68, 68, 0.1)', color: '#b91c1c' },
+  Opportunity: { background: 'rgba(16, 185, 129, 0.12)', color: '#047857' },
+  Focus: { background: 'rgba(168, 85, 247, 0.12)', color: '#7c3aed' },
+  Info: { background: 'rgba(71, 85, 105, 0.12)', color: '#475569' },
+}
+
 export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
   const { kunden, totals } = kundenAgg
   const projectsList = useMemo(() => listProjectsFromKunden(kunden), [kunden])
   const items = useMemo(() => stundenRaw?.items || stundenRaw || [], [stundenRaw])
   const customersList = useMemo(() => listCustomersFromItems(items), [items])
-  const [aiInsights, setAiInsights] = useState({ status: 'idle', summary: '', bullets: [], generatedAt: null })
+  const [aiInsights, setAiInsights] = useState({ status: 'idle', summary: '', entries: [], generatedAt: null })
 
   // Controls
   const [metric, setMetric] = useState('stunden_fakt') // 'stunden_fakt' | 'stunden_gel'
@@ -259,19 +267,19 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
 
   function generateAiInsights(){
     if (!items.length) {
-      setAiInsights({ status: 'error', summary: 'Keine Datensätze für die Analyse vorhanden.', bullets: [], generatedAt: null })
+      setAiInsights({ status: 'error', summary: 'Keine Datensätze für die Analyse vorhanden.', entries: [], generatedAt: null })
       return
     }
-    setAiInsights({ status: 'loading', summary: '', bullets: [], generatedAt: null })
+    setAiInsights({ status: 'loading', summary: '', entries: [], generatedAt: null })
     window.setTimeout(() => {
       try {
         const totalHours = monthlyTotals.reduce((acc, cur) => acc + Number(cur.total || 0), 0)
         if (!totalHours) {
-          setAiInsights({ status: 'error', summary: 'Die aktuelle Auswahl enthält keine Stundenwerte.', bullets: [], generatedAt: null })
+          setAiInsights({ status: 'error', summary: 'Die aktuelle Auswahl enthält keine Stundenwerte.', entries: [], generatedAt: null })
           return
         }
 
-        const trendBullets = buildTrendBullets(monthlyTotals, metricLabel)
+        const trendEntries = buildTrendBullets(monthlyTotals, metricLabel)
 
         const sortedCustomers = [...kunden].sort((a, b) => (Number(b?.[metric] || 0) - Number(a?.[metric] || 0)))
         const topCustomer = sortedCustomers[0]
@@ -289,20 +297,51 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
         const avgPerEmployee = employeeTotals.length ? totalHours / employeeTotals.length : 0
         const lowEmployees = [...employeeTotals].reverse().filter((entry) => entry.sum > 0 && entry.sum < avgPerEmployee * 0.4).slice(0, 3)
 
-        const bullets = [
-          ...trendBullets,
-          topCustomer ? `Top-Kunde: ${topCustomer.kunde} hält ${customerShare.toFixed(1)}% der ${metricLabel}.` : null,
-          topProject ? `Top-Projekt: ${topProject.projektcode || 'unbekannt'} bündelt ${projectShare.toFixed(1)}% der ${metricLabel}.` : null,
-          topEmployee ? `Engpass-Risiko: ${topEmployee.mitarbeiter} verantwortet ${topEmployeeShare.toFixed(1)}% aller ${metricLabel}.` : null,
-          focusEmployees.length ? `Hohe Projekt-Fokussierung bei ${focusEmployees.map((row) => `${row.employee} (${Math.round(row.segments[0].pct*100)}% auf ${row.segments[0].name})`).join(', ')}.` : null,
-          lowEmployees.length ? `Auffällige Unterauslastung bei ${lowEmployees.map((entry) => `${entry.mitarbeiter} (${entry.sum.toFixed(1)} h)`).join(', ')}.` : null,
+        const entries = [
+          ...trendEntries,
+          topCustomer ? {
+            id: 'top-customer',
+            type: 'Opportunity',
+            title: 'Top-Kunde',
+            detail: `${topCustomer.kunde} hält ${customerShare.toFixed(1)}% der ${metricLabel}.`,
+            value: `${customerShare.toFixed(1)}%`,
+            meta: topCustomer.kunde,
+          } : null,
+          topProject ? {
+            id: 'top-project',
+            type: 'Focus',
+            title: 'Schwerpunkt-Projekt',
+            detail: `${topProject.projektcode || 'unbekannt'} bündelt ${projectShare.toFixed(1)}% der ${metricLabel}.`,
+            value: `${projectShare.toFixed(1)}%`,
+            meta: topProject.projektcode,
+          } : null,
+          topEmployee ? {
+            id: 'top-employee',
+            type: topEmployeeShare >= 30 ? 'Risk' : 'Opportunity',
+            title: 'Schlüssel-Mitarbeiter',
+            detail: `${topEmployee.mitarbeiter} verantwortet ${topEmployeeShare.toFixed(1)}% aller ${metricLabel}.`,
+            value: `${topEmployeeShare.toFixed(1)}%`,
+            meta: topEmployee.mitarbeiter,
+          } : null,
+          focusEmployees.length ? {
+            id: 'focus-emps',
+            type: 'Focus',
+            title: 'Hohe Projekt-Fokussierung',
+            detail: focusEmployees.map((row) => `${row.employee} (${Math.round(row.segments[0].pct*100)}% auf ${row.segments[0].name})`).join(', '),
+          } : null,
+          lowEmployees.length ? {
+            id: 'low-util',
+            type: 'Opportunity',
+            title: 'Unterauslastung',
+            detail: lowEmployees.map((entry) => `${entry.mitarbeiter} (${entry.sum.toFixed(1)} h)`).join(', '),
+          } : null,
         ].filter(Boolean)
 
         const summary = `KI-Analyse der ${metricLabel} über ${monthlyTotals.length} Monate. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
-        setAiInsights({ status: 'ready', summary, bullets, generatedAt: new Date() })
+        setAiInsights({ status: 'ready', summary, entries, generatedAt: new Date() })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Analyse.'
-        setAiInsights({ status: 'error', summary: message, bullets: [], generatedAt: null })
+        setAiInsights({ status: 'error', summary: message, entries: [], generatedAt: null })
       }
     }, 120)
   }
@@ -333,11 +372,26 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
         {aiInsights.status === 'ready' && (
           <div style={{ display:'grid', gap:10 }}>
             <div style={{ lineHeight:1.5 }}>{aiInsights.summary}</div>
-            <ul style={{ margin:0, paddingLeft:18, display:'grid', gap:6 }}>
-              {aiInsights.bullets.map((line, idx) => (
-                <li key={idx} style={{ color:'var(--fg)' }}>{line}</li>
-              ))}
-            </ul>
+            <div style={{ display:'grid', gap:8 }}>
+              {aiInsights.entries.map((entry) => {
+                const meta = INSIGHT_TYPE_META[entry.type] || INSIGHT_TYPE_META.Info || { background:'rgba(71, 85, 105, 0.12)', color:'#475569' }
+                return (
+                  <div key={entry.id} style={{ padding:12, borderRadius:10, background:meta.background, border:`1px solid ${meta.color}20`, display:'flex', flexDirection:'column', gap:4 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
+                      <span style={{ fontWeight:600, color:meta.color }}>{entry.type}</span>
+                      {entry.value && (
+                        <span style={{ fontSize:12, fontWeight:600, color:meta.color, background:`${meta.color}18`, padding:'2px 8px', borderRadius:999 }}>{entry.value}</span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight:600 }}>{entry.title}</div>
+                    <div style={{ color:'var(--muted)' }}>{entry.detail}</div>
+                    {entry.meta && (
+                      <div style={{ fontSize:12, color:meta.color }}>Betroffen: {entry.meta}</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
