@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { differenceInCalendarMonths, format, isValid, parseISO } from 'date-fns'
+import { differenceInCalendarMonths, format, isAfter, isBefore, isValid, parseISO, startOfMonth } from 'date-fns'
 import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import {
@@ -67,7 +67,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const [sortMode, setSortMode] = useState('hours_desc') // 'hours_desc' | 'alpha'
   const [limitCount, setLimitCount] = useState(0) // 0 = all
 
-  const monthlyTotals = useMemo(() => computeMonthlyTotals(items, metric), [items, metric])
+  const monthlyTotalsRaw = useMemo(() => computeMonthlyTotals(items, metric), [items, metric])
   const metricLabel = metric === 'stunden_fakt' ? 'fakturierten Stunden' : 'geleisteten Stunden'
   const appliedRange = useMemo(() => {
     if (!params?.datum_von || !params?.datum_bis) return null
@@ -81,6 +81,21 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
       return null
     }
   }, [params?.datum_von, params?.datum_bis])
+
+  const monthlyTotals = useMemo(() => {
+    if (!appliedRange) return monthlyTotalsRaw
+    const startMonth = startOfMonth(appliedRange.start)
+    const endMonth = startOfMonth(appliedRange.end)
+    return monthlyTotalsRaw.filter((row) => {
+      try {
+        const monthDate = parseISO(`${row.month}-01`)
+        if (!isValid(monthDate)) return false
+        return !isBefore(monthDate, startMonth) && !isAfter(monthDate, endMonth)
+      } catch (_) {
+        return false
+      }
+    })
+  }, [monthlyTotalsRaw, appliedRange])
 
   const filteredEntries = useMemo(() => {
     return (aiInsights.entries || []).filter((entry) => {
