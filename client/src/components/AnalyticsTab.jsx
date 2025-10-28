@@ -97,6 +97,20 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
     })
   }, [monthlyTotalsRaw, appliedRange])
 
+  const monthlyBreakdown = useMemo(() => {
+    return monthlyTotals.map((row, idx) => {
+      const label = formatMonthLabel(row.month)
+      const total = Number(row.total || 0)
+      if (idx === 0) {
+        return { label, total, delta: null, deltaPct: null }
+      }
+      const prev = Number(monthlyTotals[idx - 1]?.total || 0)
+      const delta = total - prev
+      const deltaPct = prev ? (delta / prev) * 100 : null
+      return { label, total, delta, deltaPct }
+    })
+  }, [monthlyTotals])
+
   const filteredEntries = useMemo(() => {
     return (aiInsights.entries || []).filter((entry) => {
       if (insightFilters.riskOnly && entry.type !== 'Risk') return false
@@ -408,6 +422,48 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
         const avgPerEmployee = employeeTotals.length ? totalHours / employeeTotals.length : 0
         const lowEmployees = [...employeeTotals].reverse().filter((entry) => entry.sum > 0 && entry.sum < avgPerEmployee * 0.4).slice(0, 3)
 
+        const riskEntries = []
+        if (monthlyTotals.length >= 2) {
+          const last = monthlyTotals[monthlyTotals.length - 1]
+          const prev = monthlyTotals[monthlyTotals.length - 2]
+          const lastLabel = formatMonthLabel(last.month)
+          const prevLabel = formatMonthLabel(prev.month)
+          const diff = Number(last.total || 0) - Number(prev.total || 0)
+          const diffPct = Number(prev.total || 0) ? (diff / Number(prev.total || 0)) * 100 : null
+          if (diff < 0 && (diffPct === null || diffPct <= -15)) {
+            riskEntries.push({
+              id: 'monthly-drop',
+              type: 'Risk',
+              title: 'Starker Rückgang',
+              detail: `Gegenüber ${prevLabel} gingen die ${metricLabel} um ${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h zurück${diffPct === null ? '' : ` (${diffPct.toFixed(1)}%)`}.`,
+              value: diffPct === null ? `${Math.abs(diff).toFixed(1)} h` : `${diffPct.toFixed(1)}%`,
+              meta: lastLabel,
+            })
+          }
+        }
+
+        if (topCustomer && customerShare >= 40) {
+          riskEntries.push({
+            id: 'customer-concentration',
+            type: 'Risk',
+            title: 'Kundenkonzentration',
+            detail: `${topCustomer.kunde} bündelt ${customerShare.toFixed(1)}% der ${metricLabel}. Ein Ausfall hätte große Auswirkungen.`,
+            value: `${customerShare.toFixed(1)}%`,
+            meta: topCustomer.kunde,
+          })
+        }
+
+        if (topEmployee && topEmployeeShare >= 35) {
+          riskEntries.push({
+            id: 'employee-dependency',
+            type: 'Risk',
+            title: 'Abhängigkeit von Schlüsselperson',
+            detail: `${topEmployee.mitarbeiter} verantwortet ${topEmployeeShare.toFixed(1)}% der ${metricLabel}. Plane Know-how-Transfer oder Vertretung.`,
+            value: `${topEmployeeShare.toFixed(1)}%`,
+            meta: topEmployee.mitarbeiter,
+          })
+        }
+
         const entries = [
           appliedRange ? {
             id: 'range-info',
@@ -416,6 +472,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
             detail: `${appliedRange.months} Monate · ${format(appliedRange.start, 'dd.MM.yyyy')} bis ${format(appliedRange.end, 'dd.MM.yyyy')}`,
           } : null,
           ...trendEntries,
+          ...riskEntries,
           topCustomer ? {
             id: 'top-customer',
             type: 'Opportunity',
@@ -457,9 +514,19 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
         const uniqueMonths = new Set(monthlyTotals.map((row) => row.month))
         const expectedMonths = appliedRange ? appliedRange.months : uniqueMonths.size
         const coverage = expectedMonths ? Math.round((uniqueMonths.size / expectedMonths) * 100) : 100
+        if (coverage < 60) {
+          riskEntries.push({
+            id: 'coverage-risk',
+            type: 'Risk',
+            title: 'Datenbasis lückenhaft',
+            detail: `Nur ${coverage}% der Monate sind befüllt. Ergebnisse mit Vorsicht interpretieren.`,
+            value: `${coverage}%`,
+          })
+        }
         const monthsText = expectedMonths ? `${expectedMonths} Monat${expectedMonths === 1 ? '' : 'e'}` : `${uniqueMonths.size} Monat${uniqueMonths.size === 1 ? '' : 'e'}`
         const coverageText = coverage < 100 ? ` (Abdeckung: ${coverage}%)` : ''
-        const summary = `KI-Analyse der ${metricLabel} über ${monthsText}${coverageText}. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
+        const avgPerMonth = monthlyTotals.length ? totalHours / monthlyTotals.length : totalHours
+        const summary = `KI-Analyse der ${metricLabel} über ${monthsText}${coverageText}. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden. Ø pro Monat: ${avgPerMonth.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
         setAiInsights({ status: 'ready', summary, entries, generatedAt: new Date() })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Analyse.'
@@ -544,6 +611,33 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
                 <div style={{ color:'var(--muted)', fontStyle:'italic' }}>Keine Einblicke passen zu den aktuellen Filtern.</div>
               )}
             </div>
+            {monthlyBreakdown.length > 0 && (
+              <div className="panel" style={{ padding:12, background:'var(--bg)', borderRadius:14 }}>
+                <strong>Monatliche Entwicklung</strong>
+                <div style={{ overflowX:'auto', marginTop:8 }}>
+                  <table className="table" style={{ minWidth: 520 }}>
+                    <thead>
+                      <tr>
+                        <th>Monat</th>
+                        <th style={{ textAlign:'right' }}>Total (h)</th>
+                        <th style={{ textAlign:'right' }}>Δ (h)</th>
+                        <th style={{ textAlign:'right' }}>Δ %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyBreakdown.map((row, idx) => (
+                        <tr key={idx}>
+                          <td>{row.label}</td>
+                          <td style={{ textAlign:'right' }}>{row.total.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
+                          <td style={{ textAlign:'right' }}>{row.delta === null ? '–' : row.delta.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
+                          <td style={{ textAlign:'right' }}>{row.deltaPct === null ? '–' : `${row.deltaPct.toFixed(1)}%`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
