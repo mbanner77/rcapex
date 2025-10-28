@@ -224,7 +224,7 @@ export default function App() {
           )}
 
           {tab === 'analytics' && !loading && kundenAgg && (
-            <AnalyticsTab kundenAgg={kundenAgg} stundenRaw={stundenRaw} />
+            <AnalyticsTab kundenAgg={kundenAgg} stundenRaw={stundenRaw} params={params} />
           )}
 
           {tab === 'employee' && !loading && kundenAgg && (

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { differenceInCalendarMonths, format, isValid, parseISO } from 'date-fns'
 import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import {
@@ -36,7 +37,7 @@ const INSIGHT_TYPE_META = {
   Info: { background: 'rgba(71, 85, 105, 0.12)', color: '#475569' },
 }
 
-export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
+export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const { kunden, totals } = kundenAgg
   const projectsList = useMemo(() => listProjectsFromKunden(kunden), [kunden])
   const items = useMemo(() => stundenRaw?.items || stundenRaw || [], [stundenRaw])
@@ -58,6 +59,18 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
 
   const monthlyTotals = useMemo(() => computeMonthlyTotals(items, metric), [items, metric])
   const metricLabel = metric === 'stunden_fakt' ? 'fakturierten Stunden' : 'geleisteten Stunden'
+  const appliedRange = useMemo(() => {
+    if (!params?.datum_von || !params?.datum_bis) return null
+    try {
+      const start = parseISO(params.datum_von)
+      const end = parseISO(params.datum_bis)
+      if (!isValid(start) || !isValid(end)) return null
+      const months = Math.max(1, differenceInCalendarMonths(end, start) + 1)
+      return { start, end, months }
+    } catch (_) {
+      return null
+    }
+  }, [params?.datum_von, params?.datum_bis])
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -299,6 +312,12 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
         const lowEmployees = [...employeeTotals].reverse().filter((entry) => entry.sum > 0 && entry.sum < avgPerEmployee * 0.4).slice(0, 3)
 
         const entries = [
+          appliedRange ? {
+            id: 'range-info',
+            type: 'Info',
+            title: 'Analysezeitraum',
+            detail: `${appliedRange.months} Monate · ${format(appliedRange.start, 'dd.MM.yyyy')} bis ${format(appliedRange.end, 'dd.MM.yyyy')}`,
+          } : null,
           ...trendEntries,
           topCustomer ? {
             id: 'top-customer',
@@ -338,7 +357,8 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw }) {
           } : null,
         ].filter(Boolean)
 
-        const summary = `KI-Analyse der ${metricLabel} über ${monthlyTotals.length} Monate. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
+        const monthsText = appliedRange ? `${appliedRange.months} Monat${appliedRange.months === 1 ? '' : 'e'}` : `${monthlyTotals.length} Monat${monthlyTotals.length === 1 ? '' : 'e'}`
+        const summary = `KI-Analyse der ${metricLabel} über ${monthsText}. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
         setAiInsights({ status: 'ready', summary, entries, generatedAt: new Date() })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Analyse.'
