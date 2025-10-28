@@ -37,6 +37,15 @@ const INSIGHT_TYPE_META = {
   Info: { background: 'rgba(71, 85, 105, 0.12)', color: '#475569' },
 }
 
+function InsightChip({ label, value, tone }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:6, background:`${tone}15`, color:tone, padding:'4px 10px', borderRadius:999, fontSize:12, fontWeight:600 }}>
+      <span>{label}</span>
+      <span style={{ background:tone, color:'#fff', borderRadius:999, padding:'2px 8px', fontSize:11 }}>{value}</span>
+    </div>
+  )
+}
+
 export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const { kunden, totals } = kundenAgg
   const projectsList = useMemo(() => listProjectsFromKunden(kunden), [kunden])
@@ -71,6 +80,32 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
     } catch (_) {
       return null
     }
+  }, [params?.datum_von, params?.datum_bis])
+
+  const filteredEntries = useMemo(() => {
+    return (aiInsights.entries || []).filter((entry) => {
+      if (insightFilters.riskOnly && entry.type !== 'Risk') return false
+      if (entry.value && typeof entry.value === 'string' && entry.value.endsWith('%')) {
+        const val = Number(entry.value.replace('%', ''))
+        if (!Number.isNaN(val) && val < insightFilters.minShare) return false
+      }
+      return true
+    })
+  }, [aiInsights.entries, insightFilters])
+
+  const insightStats = useMemo(() => {
+    const counts = { total: filteredEntries.length, Risk: 0, Opportunity: 0, Focus: 0, Trend: 0, Info: 0 }
+    filteredEntries.forEach((entry) => {
+      counts[entry.type] = (counts[entry.type] || 0) + 1
+    })
+    return counts
+  }, [filteredEntries])
+
+  useEffect(() => {
+    if (copyStatus !== 'copied') return
+    const timer = window.setTimeout(() => setCopyStatus('idle'), 1600)
+    return () => window.clearTimeout(timer)
+  }, [copyStatus])
 
   async function copyInsightsToClipboard(){
     if (aiInsights.status !== 'ready') return
@@ -93,24 +128,31 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
       setCopyStatus('error')
     }
   }
-  }, [params?.datum_von, params?.datum_bis])
 
-  const filteredEntries = useMemo(() => {
-    return (aiInsights.entries || []).filter((entry) => {
-      if (insightFilters.riskOnly && entry.type !== 'Risk') return false
-      if (entry.value && typeof entry.value === 'string' && entry.value.endsWith('%')) {
-        const val = Number(entry.value.replace('%', ''))
-        if (!Number.isNaN(val) && val < insightFilters.minShare) return false
-      }
-      return true
+  function downloadInsightsMarkdown(){
+    if (aiInsights.status !== 'ready') return
+    const lines = [
+      `# Management Insights (${new Date().toLocaleString('de-DE')})`,
+      '',
+      aiInsights.summary,
+      '',
+    ]
+    filteredEntries.forEach((entry) => {
+      lines.push(`## ${entry.title}`)
+      lines.push(`- Typ: ${entry.type}${entry.value ? ` (${entry.value})` : ''}`)
+      lines.push(`- Beschreibung: ${entry.detail}`)
+      if (entry.meta) lines.push(`- Betroffen: ${entry.meta}`)
+      lines.push('')
     })
-  }, [aiInsights.entries, insightFilters])
-
-  useEffect(() => {
-    if (copyStatus !== 'copied') return
-    const timer = window.setTimeout(() => setCopyStatus('idle'), 1600)
-    return () => window.clearTimeout(timer)
-  }, [copyStatus])
+    if (!filteredEntries.length) lines.push('_Keine Einträge mit aktuellem Filter._')
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'analytics_insights.md'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -432,6 +474,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
             <button className="btn" onClick={copyInsightsToClipboard} disabled={aiInsights.status !== 'ready' || !filteredEntries.length}>
               {copyStatus === 'copied' ? 'Kopiert!' : copyStatus === 'error' ? 'Kopieren fehlgeschlagen' : 'Insights kopieren'}
             </button>
+            <button className="btn" onClick={downloadInsightsMarkdown} disabled={aiInsights.status !== 'ready'}>
+              Markdown exportieren
+            </button>
           </div>
         </div>
         {aiInsights.status === 'idle' && (
@@ -446,6 +491,14 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
         {aiInsights.status === 'ready' && (
           <div style={{ display:'grid', gap:10 }}>
             <div style={{ lineHeight:1.5 }}>{aiInsights.summary}</div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <InsightChip label="Gesamt" value={insightStats.total} tone="#0f172a" />
+              <InsightChip label="Risiken" value={insightStats.Risk} tone={INSIGHT_TYPE_META.Risk.color} />
+              <InsightChip label="Chancen" value={insightStats.Opportunity} tone={INSIGHT_TYPE_META.Opportunity.color} />
+              <InsightChip label="Fokus" value={insightStats.Focus} tone={INSIGHT_TYPE_META.Focus.color} />
+              <InsightChip label="Trends" value={insightStats.Trend} tone={INSIGHT_TYPE_META.Trend.color} />
+              <InsightChip label="Info" value={insightStats.Info} tone={INSIGHT_TYPE_META.Info.color} />
+            </div>
             <div style={{ display:'grid', gap:8 }}>
               {filteredEntries.map((entry) => {
                 const meta = INSIGHT_TYPE_META[entry.type] || INSIGHT_TYPE_META.Info || { background:'rgba(71, 85, 105, 0.12)', color:'#475569' }
