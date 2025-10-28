@@ -375,7 +375,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
           return
         }
 
-        const trendEntries = buildTrendBullets(monthlyTotals, metricLabel)
+        const trendEntries = buildTrendInsights(monthlyTotals, metricLabel)
 
         const sortedCustomers = [...kunden].sort((a, b) => (Number(b?.[metric] || 0) - Number(a?.[metric] || 0)))
         const topCustomer = sortedCustomers[0]
@@ -724,7 +724,7 @@ export function formatMonthLabel(month) {
   }
 }
 
-export function buildTrendBullets(monthlyTotals, metricLabel) {
+export function buildTrendInsights(monthlyTotals, metricLabel) {
   if (!monthlyTotals.length) {
     return [{
       id: 'trend-none',
@@ -748,13 +748,14 @@ export function buildTrendBullets(monthlyTotals, metricLabel) {
   const last = monthlyTotals[monthlyTotals.length - 1]
   const prev = monthlyTotals[monthlyTotals.length - 2]
   const diff = Number(last.total || 0) - Number(prev.total || 0)
-  const diffPct = prev.total ? (diff / prev.total) * 100 : 0
+  const prevTotal = Number(prev.total || 0)
+  const diffPct = prevTotal ? (diff / prevTotal) * 100 : null
   entries.push({
     id: 'trend-current',
     type: 'Trend',
     title: diff >= 0 ? 'Aktuelle Steigerung' : 'Aktueller Rückgang',
-    detail: `${diff >= 0 ? 'Steigerung' : 'Rückgang'} von ${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h (${diffPct.toFixed(1)}%) im Monat ${formatMonthLabel(last.month)} gegenüber ${formatMonthLabel(prev.month)}.`,
-    value: `${diffPct.toFixed(1)}%`,
+    detail: `${diff >= 0 ? 'Steigerung' : 'Rückgang'} von ${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h${diffPct === null ? '' : ` (${diffPct.toFixed(1)}%)`} im Monat ${formatMonthLabel(last.month)} gegenüber ${formatMonthLabel(prev.month)}.`,
+    value: diffPct === null ? `${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h` : `${diffPct.toFixed(1)}%`,
   })
 
   let strongestDelta = { value: 0, month: last.month, prev: prev.month }
@@ -767,13 +768,18 @@ export function buildTrendBullets(monthlyTotals, metricLabel) {
     }
   }
   if (Math.abs(strongestDelta.value) > Math.abs(diff)) {
+    const deltaPct = Number(strongestDelta.prev ? ((strongestDelta.value / Number(strongestDelta.prev)) * 100) : null)
     entries.push({
       id: 'trend-strongest',
       type: 'Trend',
       title: strongestDelta.value >= 0 ? 'Größte Steigerung' : 'Stärkster Rückgang',
-      detail: `Historische ${strongestDelta.value >= 0 ? 'größte Steigerung' : 'stärkster Rückgang'}: ${formatMonthLabel(strongestDelta.month)} vs. ${formatMonthLabel(strongestDelta.prev)} mit ${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h Differenz.`,
-      value: `${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`,
+      detail: `Historische ${strongestDelta.value >= 0 ? 'größte Steigerung' : 'stärkster Rückgang'}: ${formatMonthLabel(strongestDelta.month)} vs. ${formatMonthLabel(strongestDelta.prev)} mit ${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h Differenz${Number.isFinite(deltaPct) ? ` (${deltaPct.toFixed(1)}%)` : ''}.`,
+      value: Number.isFinite(deltaPct) ? `${deltaPct.toFixed(1)}%` : `${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`,
     })
   }
   return entries
+}
+
+export function buildTrendBullets(monthlyTotals, metricLabel) {
+  return buildTrendInsights(monthlyTotals, metricLabel).map((entry) => entry.detail)
 }

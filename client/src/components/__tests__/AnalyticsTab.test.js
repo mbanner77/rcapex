@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTrendBullets, computeMonthlyTotals, formatMonthLabel } from '../AnalyticsTab.jsx'
+import { buildTrendBullets, buildTrendInsights, computeMonthlyTotals, formatMonthLabel } from '../AnalyticsTab.jsx'
 
 describe('AnalyticsTab helper utilities', () => {
   describe('computeMonthlyTotals', () => {
@@ -38,35 +38,34 @@ describe('AnalyticsTab helper utilities', () => {
   })
 
   describe('buildTrendBullets', () => {
-    it('handles empty input', () => {
-      expect(buildTrendBullets([], 'fakturierten Stunden')).toEqual([
-        {
-          id: 'trend-none',
-          type: 'Info',
-          title: 'Keine Zeitreihen',
-          detail: 'Für den aktuellen Zeitraum liegen keine Monatsdaten vor.',
-        },
-      ])
-    })
+    it('returns textual fallback strings', () => {
+      expect(buildTrendBullets([], 'fakturierten Stunden')).toEqual(['Für den aktuellen Zeitraum liegen keine Monatsdaten vor.'])
 
-    it('describes single month', () => {
-      const bullets = buildTrendBullets([{ month: '2025-07', total: 12.5 }], 'geleisteten Stunden')
-      expect(bullets[0].type).toBe('Trend')
-      expect(bullets[0].detail).toContain('Nur ein Monat verfügbar')
-      expect(bullets[0].detail).toContain('geleisteten Stunden')
-    })
+      const single = buildTrendBullets([{ month: '2025-07', total: 12.5 }], 'geleisteten Stunden')
+      expect(single[0]).toContain('Nur ein Monat verfügbar')
 
-    it('captures last month change and strongest delta', () => {
       const totals = [
         { month: '2025-04', total: 10 },
         { month: '2025-05', total: 30 },
         { month: '2025-06', total: 20 },
       ]
       const bullets = buildTrendBullets(totals, 'geleisteten Stunden')
-      expect(bullets[0].type).toBe('Trend')
-      expect(bullets[0].detail).toContain('Rückgang')
-      expect(bullets[0].detail).toContain('Mai 2025')
-      expect(bullets[1].title).toContain('Größte Steigerung')
+      expect(bullets[0]).toContain('Rückgang')
+      expect(bullets[0]).toContain('Mai 2025')
+      expect(bullets[1]).toContain('größte Steigerung')
+    })
+  })
+
+  describe('buildTrendInsights', () => {
+    it('emits structured entries with types', () => {
+      const totals = [
+        { month: '2025-01', total: 15 },
+        { month: '2025-02', total: 30 },
+      ]
+      const insights = buildTrendInsights(totals, 'fakturierten Stunden')
+      expect(insights[0]).toMatchObject({ id: 'trend-current', type: 'Trend' })
+      expect(insights[0].detail).toContain('Steigerung')
+      expect(insights[0].value).toMatch(/%$/)
     })
   })
 })
