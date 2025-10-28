@@ -20,6 +20,17 @@ import SettingsDialog from './components/SettingsDialog.jsx'
 import ReportSchedules from './components/ReportSchedules.jsx'
 import { LOGO_URL } from './lib/constants'
 
+const TAB_OPTIONS = [
+  { value: 'overview', label: 'Übersicht' },
+  { value: 'analytics', label: 'Analytik' },
+  { value: 'employee', label: 'Mitarbeiter' },
+  { value: 'compare', label: 'Vergleich' },
+  { value: 'trends', label: 'Trends' },
+  { value: 'umsatzliste', label: 'Umsatzliste' },
+  { value: 'watchdog', label: 'Watchdog' },
+  { value: 'timesheets', label: 'Erfassung' },
+]
+
 function getPrevMonthRange() {
   const now = new Date()
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0))
@@ -157,102 +168,118 @@ export default function App() {
   }
 
   return (
-    <div className="container" style={{ fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif' }}>
-      <div className="header">
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <img src={LOGO_URL} alt="Realcore" style={{ height: 28 }} />
-          <h1 style={{ margin: 0 }}>Realcore Controlling Dashboard</h1>
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="brand">
+          <img src={LOGO_URL} alt="Realcore" className="brand-logo" />
+          <div>
+            <h1>Realcore Controlling Dashboard</h1>
+            <p className="brand-sub">KI-gestützte Projekt- und Ressourcensteuerung</p>
+          </div>
         </div>
-        <div className="spacer" />
-        <div className="userinfo">Angemeldet{auth.username ? `: ${auth.username}` : ''}</div>
-        <button className="btn" style={{ marginRight: 8 }} onClick={() => setShowSchedules(true)}>Report-Zeitpläne</button>
-        <button className="btn" style={{ marginRight: 8 }} onClick={() => setShowSettings(true)}>Einstellungen</button>
-        <button className="btn" onClick={async () => { await logout(); setAuth({ checked: true, loggedIn: false, username: null }) }}>Logout</button>
-      </div>
-      <div style={{ color: 'var(--muted)', marginBottom: 12 }}>
-        Zeitraum: {format(parseISO(params.datum_von), 'dd.MM.yyyy', { locale: de })} – {format(parseISO(params.datum_bis), 'dd.MM.yyyy', { locale: de })}
-      </div>
+        <div className="header-actions">
+          <span className="userinfo">Angemeldet{auth.username ? `: ${auth.username}` : ''}</span>
+          <div className="header-buttons">
+            <button className="btn" onClick={() => setShowSchedules(true)}>Report-Zeitpläne</button>
+            <button className="btn" onClick={() => setShowSettings(true)}>Einstellungen</button>
+            <button className="btn" onClick={async () => { await logout(); setAuth({ checked: true, loggedIn: false, username: null }) }}>Logout</button>
+          </div>
+        </div>
+      </header>
 
-      <div className="panel">
-        <Filters params={params} onParamsChange={setParams} defaults={DEFAULTS} />
-
-        <div className="content">
-          {loading && <div>Loading…</div>}
-          {error && <div style={{ color: 'crimson' }}>Fehler: {String(error)}</div>}
-
-          {/* Small-screen tab selector */}
-          <div className="show-sm" style={{ marginBottom: 8 }}>
-            <select className="input" value={tab} onChange={(e) => setTab(e.target.value)}>
-              <option value="overview">Übersicht</option>
-              <option value="analytics">Analytik</option>
-              <option value="employee">Mitarbeiter</option>
-              <option value="compare">Vergleich</option>
-              <option value="trends">Trends</option>
-              <option value="umsatzliste">Umsatzliste</option>
-              <option value="watchdog">Watchdog</option>
-              <option value="timesheets">Erfassung</option>
-            </select>
+      <main className="app-main">
+        <section className="panel filters-panel">
+          <div className="panel-header">
+            <div>
+              <span className="panel-kicker">Zeitraum</span>
+              <div className="panel-title">{format(parseISO(params.datum_von), 'dd.MM.yyyy', { locale: de })} – {format(parseISO(params.datum_bis), 'dd.MM.yyyy', { locale: de })}</div>
+            </div>
+            <div className="panel-meta">Unit: {params.unit || '–'}</div>
           </div>
 
-          <div className="tabs hide-sm">
-            <div className={`tab ${tab==='overview' ? 'active' : ''}`} onClick={() => setTab('overview')}>Übersicht</div>
-            <div className={`tab ${tab==='analytics' ? 'active' : ''}`} onClick={() => setTab('analytics')}>Analytik</div>
-            <div className={`tab ${tab==='employee' ? 'active' : ''}`} onClick={() => setTab('employee')}>Mitarbeiter</div>
-            <div className={`tab ${tab==='compare' ? 'active' : ''}`} onClick={() => setTab('compare')}>Vergleich</div>
-            <div className={`tab ${tab==='trends' ? 'active' : ''}`} onClick={() => setTab('trends')}>Trends</div>
-            <div className={`tab ${tab==='umsatzliste' ? 'active' : ''}`} onClick={() => setTab('umsatzliste')}>Umsatzliste</div>
-            <div className={`tab ${tab==='watchdog' ? 'active' : ''}`} onClick={() => setTab('watchdog')}>Watchdog</div>
-            <div className={`tab ${tab==='timesheets' ? 'active' : ''}`} onClick={() => setTab('timesheets')}>Erfassung</div>
+          <Filters params={params} onParamsChange={setParams} defaults={DEFAULTS} />
+
+          <div className="panel-body">
+            {loading && <div className="status status-loading">Lade aktuelle Daten …</div>}
+            {error && <div className="status status-error">Fehler: {String(error)}</div>}
+
+            <div className="show-sm" style={{ marginBottom: 12 }}>
+              <label className="visually-hidden" htmlFor="tab-select">Bereich wählen</label>
+              <select id="tab-select" className="input" value={tab} onChange={(e) => setTab(e.target.value)}>
+                {TAB_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <nav className="tabs hide-sm" aria-label="Hauptnavigation">
+              {TAB_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`tab ${tab === option.value ? 'active' : ''}`}
+                  onClick={() => setTab(option.value)}
+                  aria-pressed={tab === option.value}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </nav>
+
+            {kundenAgg && (
+              <div className="panel-toolbar">
+                <button className="btn" onClick={() => exportCustomersCsv(kundenAgg.kunden)}>Export Kunden (CSV)</button>
+                <button className="btn" onClick={() => exportProjectsCsv(kundenAgg.kunden)}>Export Projekte (CSV)</button>
+              </div>
+            )}
+
+            {tab === 'overview' && !loading && kundenAgg && (
+              <div className="grid">
+                <div>
+                  <CustomerTable kunden={kundenAgg.kunden} totals={kundenAgg.totals} />
+                </div>
+                <div>
+                  <HoursByCustomerChart kunden={kundenAgg.kunden} />
+                </div>
+              </div>
+            )}
+
+            {tab === 'analytics' && !loading && kundenAgg && (
+              <AnalyticsTab kundenAgg={kundenAgg} stundenRaw={stundenRaw} params={params} />
+            )}
+
+            {tab === 'employee' && !loading && kundenAgg && (
+              <EmployeeTab stundenRaw={stundenRaw} params={params} />
+            )}
+
+            {tab === 'compare' && !loading && kundenAgg && (
+              <ComparisonTab currentRaw={stundenRaw} params={params} />
+            )}
+
+            {tab === 'trends' && !loading && (
+              <TrendTab params={params} />
+            )}
+
+            {tab === 'umsatzliste' && !loading && (
+              <UmsatzTab umsatzRaw={umsatzRaw} params={params} />
+            )}
+
+            {tab === 'watchdog' && (
+              <WatchdogTab />
+            )}
+
+            {tab === 'timesheets' && (
+              <TimesheetsTab />
+            )}
           </div>
+        </section>
+      </main>
 
-          {kundenAgg && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-              <button className="btn" onClick={() => exportCustomersCsv(kundenAgg.kunden)}>Export Kunden (CSV)</button>
-              <button className="btn" onClick={() => exportProjectsCsv(kundenAgg.kunden)}>Export Projekte (CSV)</button>
-            </div>
-          )}
+      <footer className="app-footer">
+        <span>Stand: {new Date().toLocaleString('de-DE')}</span>
+        <span>© {new Date().getFullYear()} Realcore GmbH</span>
+      </footer>
 
-          {tab === 'overview' && !loading && kundenAgg && (
-            <div className="grid">
-              <div>
-                <CustomerTable kunden={kundenAgg.kunden} totals={kundenAgg.totals} />
-              </div>
-              <div>
-                <HoursByCustomerChart kunden={kundenAgg.kunden} />
-              </div>
-            </div>
-          )}
-
-          {tab === 'analytics' && !loading && kundenAgg && (
-            <AnalyticsTab kundenAgg={kundenAgg} stundenRaw={stundenRaw} params={params} />
-          )}
-
-          {tab === 'employee' && !loading && kundenAgg && (
-            <EmployeeTab stundenRaw={stundenRaw} params={params} />
-          )}
-
-
-          {tab === 'compare' && !loading && kundenAgg && (
-            <ComparisonTab currentRaw={stundenRaw} params={params} />
-          )}
-
-          {tab === 'trends' && !loading && (
-            <TrendTab params={params} />
-          )}
-
-          {tab === 'umsatzliste' && !loading && (
-            <UmsatzTab umsatzRaw={umsatzRaw} params={params} />
-          )}
-
-          {tab === 'watchdog' && (
-            <WatchdogTab />
-          )}
-
-          {tab === 'timesheets' && (
-            <TimesheetsTab />
-          )}
-        </div>
-      </div>
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showSchedules && <ReportSchedules onClose={() => setShowSchedules(false)} />}
     </div>
