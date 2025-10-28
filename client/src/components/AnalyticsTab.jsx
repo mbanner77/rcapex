@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { differenceInCalendarMonths, format, isValid, parseISO } from 'date-fns'
 import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
@@ -44,6 +44,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const customersList = useMemo(() => listCustomersFromItems(items), [items])
   const [aiInsights, setAiInsights] = useState({ status: 'idle', summary: '', entries: [], generatedAt: null })
   const [insightFilters, setInsightFilters] = useState({ riskOnly: false, minShare: 15 })
+  const [copyStatus, setCopyStatus] = useState('idle')
 
   // Controls
   const [metric, setMetric] = useState('stunden_fakt') // 'stunden_fakt' | 'stunden_gel'
@@ -70,7 +71,46 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
     } catch (_) {
       return null
     }
+
+  async function copyInsightsToClipboard(){
+    if (aiInsights.status !== 'ready') return
+    const available = typeof navigator !== 'undefined' && navigator?.clipboard?.writeText
+    if (!available) {
+      setCopyStatus('error')
+      return
+    }
+    try {
+      const lines = [aiInsights.summary]
+      filteredEntries.forEach((entry) => {
+        const badge = entry.value ? ` (${entry.value})` : ''
+        lines.push(`- [${entry.type}] ${entry.title}${badge}: ${entry.detail}`)
+        if (entry.meta) lines.push(`    Betroffen: ${entry.meta}`)
+      })
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setCopyStatus('copied')
+    } catch (err) {
+      console.error('copy failed', err)
+      setCopyStatus('error')
+    }
+  }
   }, [params?.datum_von, params?.datum_bis])
+
+  const filteredEntries = useMemo(() => {
+    return (aiInsights.entries || []).filter((entry) => {
+      if (insightFilters.riskOnly && entry.type !== 'Risk') return false
+      if (entry.value && typeof entry.value === 'string' && entry.value.endsWith('%')) {
+        const val = Number(entry.value.replace('%', ''))
+        if (!Number.isNaN(val) && val < insightFilters.minShare) return false
+      }
+      return true
+    })
+  }, [aiInsights.entries, insightFilters])
+
+  useEffect(() => {
+    if (copyStatus !== 'copied') return
+    const timer = window.setTimeout(() => setCopyStatus('idle'), 1600)
+    return () => window.clearTimeout(timer)
+  }, [copyStatus])
 
   const topProjects = useMemo(() => projectTotalsFromKunden(kunden).slice(0, 15), [kunden])
 
@@ -389,6 +429,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
             <button className="btn" onClick={generateAiInsights} disabled={aiInsights.status === 'loading'}>
               {aiInsights.status === 'loading' ? 'Analysiere…' : 'Analyse starten'}
             </button>
+            <button className="btn" onClick={copyInsightsToClipboard} disabled={aiInsights.status !== 'ready' || !filteredEntries.length}>
+              {copyStatus === 'copied' ? 'Kopiert!' : copyStatus === 'error' ? 'Kopieren fehlgeschlagen' : 'Insights kopieren'}
+            </button>
           </div>
         </div>
         {aiInsights.status === 'idle' && (
@@ -404,16 +447,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
           <div style={{ display:'grid', gap:10 }}>
             <div style={{ lineHeight:1.5 }}>{aiInsights.summary}</div>
             <div style={{ display:'grid', gap:8 }}>
-              {aiInsights.entries
-                .filter((entry) => {
-                  if (insightFilters.riskOnly && entry.type !== 'Risk') return false
-                  if (entry.value && entry.value.endsWith('%')) {
-                    const val = Number(entry.value.replace('%',''))
-                    if (!Number.isNaN(val) && val < insightFilters.minShare) return false
-                  }
-                  return true
-                })
-                .map((entry) => {
+              {filteredEntries.map((entry) => {
                 const meta = INSIGHT_TYPE_META[entry.type] || INSIGHT_TYPE_META.Info || { background:'rgba(71, 85, 105, 0.12)', color:'#475569' }
                 return (
                   <div key={entry.id} style={{ padding:12, borderRadius:14, background:meta.background, border:`1px solid ${meta.color}22`, display:'flex', flexDirection:'column', gap:6, boxShadow:'0 4px 10px rgba(15,23,42,0.12)' }}>
@@ -434,14 +468,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
                   </div>
                 )
               })}
-              {aiInsights.entries.length > 0 && aiInsights.entries.filter((entry) => {
-                if (insightFilters.riskOnly && entry.type !== 'Risk') return false
-                if (entry.value && entry.value.endsWith('%')) {
-                  const val = Number(entry.value.replace('%',''))
-                  if (!Number.isNaN(val) && val < insightFilters.minShare) return false
-                }
-                return true
-              }).length === 0 && (
+              {aiInsights.entries.length > 0 && filteredEntries.length === 0 && (
                 <div style={{ color:'var(--muted)', fontStyle:'italic' }}>Keine Einblicke passen zu den aktuellen Filtern.</div>
               )}
             </div>
