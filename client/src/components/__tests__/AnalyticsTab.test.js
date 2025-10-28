@@ -39,13 +39,21 @@ describe('AnalyticsTab helper utilities', () => {
 
   describe('buildTrendBullets', () => {
     it('handles empty input', () => {
-      expect(buildTrendBullets([], 'fakturierten Stunden')).toEqual(['Keine Zeitreihen-Daten gefunden.'])
+      expect(buildTrendBullets([], 'fakturierten Stunden')).toEqual([
+        {
+          id: 'trend-none',
+          type: 'Info',
+          title: 'Keine Zeitreihen',
+          detail: 'Für den aktuellen Zeitraum liegen keine Monatsdaten vor.',
+        },
+      ])
     })
 
     it('describes single month', () => {
       const bullets = buildTrendBullets([{ month: '2025-07', total: 12.5 }], 'geleisteten Stunden')
-      expect(bullets[0]).toContain('Nur ein Monat verfügbar')
-      expect(bullets[0]).toContain('geleisteten Stunden')
+      expect(bullets[0].type).toBe('Trend')
+      expect(bullets[0].detail).toContain('Nur ein Monat verfügbar')
+      expect(bullets[0].detail).toContain('geleisteten Stunden')
     })
 
     it('captures last month change and strongest delta', () => {
@@ -55,9 +63,10 @@ describe('AnalyticsTab helper utilities', () => {
         { month: '2025-06', total: 20 },
       ]
       const bullets = buildTrendBullets(totals, 'geleisteten Stunden')
-      expect(bullets[0]).toContain('Rückgang')
-      expect(bullets[0]).toContain('Mai 2025')
-      expect(bullets[1]).toContain('größte Steigerung')
+      expect(bullets[0].type).toBe('Trend')
+      expect(bullets[0].detail).toContain('Rückgang')
+      expect(bullets[0].detail).toContain('Mai 2025')
+      expect(bullets[1].title).toContain('Größte Steigerung')
     })
   })
 })

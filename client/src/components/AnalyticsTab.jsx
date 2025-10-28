@@ -439,8 +439,12 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
           } : null,
         ].filter(Boolean)
 
-        const monthsText = appliedRange ? `${appliedRange.months} Monat${appliedRange.months === 1 ? '' : 'e'}` : `${monthlyTotals.length} Monat${monthlyTotals.length === 1 ? '' : 'e'}`
-        const summary = `KI-Analyse der ${metricLabel} über ${monthsText}. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
+        const uniqueMonths = new Set(monthlyTotals.map((row) => row.month))
+        const expectedMonths = appliedRange ? appliedRange.months : uniqueMonths.size
+        const coverage = expectedMonths ? Math.round((uniqueMonths.size / expectedMonths) * 100) : 100
+        const monthsText = expectedMonths ? `${expectedMonths} Monat${expectedMonths === 1 ? '' : 'e'}` : `${uniqueMonths.size} Monat${uniqueMonths.size === 1 ? '' : 'e'}`
+        const coverageText = coverage < 100 ? ` (Abdeckung: ${coverage}%)` : ''
+        const summary = `KI-Analyse der ${metricLabel} über ${monthsText}${coverageText}. Gesamtvolumen: ${totalHours.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden.`
         setAiInsights({ status: 'ready', summary, entries, generatedAt: new Date() })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Analyse.'
@@ -721,19 +725,37 @@ export function formatMonthLabel(month) {
 }
 
 export function buildTrendBullets(monthlyTotals, metricLabel) {
-  if (!monthlyTotals.length) return ['Keine Zeitreihen-Daten gefunden.']
+  if (!monthlyTotals.length) {
+    return [{
+      id: 'trend-none',
+      type: 'Info',
+      title: 'Keine Zeitreihen',
+      detail: 'Für den aktuellen Zeitraum liegen keine Monatsdaten vor.',
+    }]
+  }
   if (monthlyTotals.length === 1) {
     const label = formatMonthLabel(monthlyTotals[0].month)
     const value = Number(monthlyTotals[0].total || 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-    return [`Nur ein Monat verfügbar (${label}) mit insgesamt ${value} ${metricLabel}.`]
+    return [{
+      id: 'trend-single',
+      type: 'Trend',
+      title: 'Einzelmonat',
+      detail: `Nur ein Monat verfügbar (${label}) mit insgesamt ${value} ${metricLabel}.`,
+      value: value + ' h',
+    }]
   }
-  const bullets = []
+  const entries = []
   const last = monthlyTotals[monthlyTotals.length - 1]
   const prev = monthlyTotals[monthlyTotals.length - 2]
   const diff = Number(last.total || 0) - Number(prev.total || 0)
   const diffPct = prev.total ? (diff / prev.total) * 100 : 0
-  const trendLabel = diff >= 0 ? 'Steigerung' : 'Rückgang'
-  bullets.push(`${trendLabel} von ${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h (${diffPct.toFixed(1)}%) im Monat ${formatMonthLabel(last.month)} gegenüber ${formatMonthLabel(prev.month)}.`)
+  entries.push({
+    id: 'trend-current',
+    type: 'Trend',
+    title: diff >= 0 ? 'Aktuelle Steigerung' : 'Aktueller Rückgang',
+    detail: `${diff >= 0 ? 'Steigerung' : 'Rückgang'} von ${Math.abs(diff).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h (${diffPct.toFixed(1)}%) im Monat ${formatMonthLabel(last.month)} gegenüber ${formatMonthLabel(prev.month)}.`,
+    value: `${diffPct.toFixed(1)}%`,
+  })
 
   let strongestDelta = { value: 0, month: last.month, prev: prev.month }
   for (let i = 1; i < monthlyTotals.length; i++) {
@@ -745,8 +767,13 @@ export function buildTrendBullets(monthlyTotals, metricLabel) {
     }
   }
   if (Math.abs(strongestDelta.value) > Math.abs(diff)) {
-    const label = strongestDelta.value >= 0 ? 'größte Steigerung' : 'stärkster Rückgang'
-    bullets.push(`Historische ${label}: ${formatMonthLabel(strongestDelta.month)} vs. ${formatMonthLabel(strongestDelta.prev)} mit ${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h Differenz.`)
+    entries.push({
+      id: 'trend-strongest',
+      type: 'Trend',
+      title: strongestDelta.value >= 0 ? 'Größte Steigerung' : 'Stärkster Rückgang',
+      detail: `Historische ${strongestDelta.value >= 0 ? 'größte Steigerung' : 'stärkster Rückgang'}: ${formatMonthLabel(strongestDelta.month)} vs. ${formatMonthLabel(strongestDelta.prev)} mit ${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h Differenz.`,
+      value: `${Math.abs(strongestDelta.value).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`,
+    })
   }
-  return bullets
+  return entries
 }
