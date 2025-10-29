@@ -1687,6 +1687,7 @@ function resolveUnitExtIds() {
     'h0zDeGnQIgfY3px', // SAP Basis
     'YtK84kUP26b7bMw', // RCC Transformation
     'eQnsTZhPu8GPFUm', // RCC Architecture
+    'zZhkQJ460P62ZrB', // Bremen
   ];
 }
 
@@ -1699,6 +1700,7 @@ function unitName(id) {
     'h0zDeGnQIgfY3px': 'SAP Basis',
     'YtK84kUP26b7bMw': 'RCC Transformation',
     'eQnsTZhPu8GPFUm': 'RCC Architecture',
+    'zZhkQJ460P62ZrB': 'Bremen',
   }
   return map[id] || id || 'ALL'
 }

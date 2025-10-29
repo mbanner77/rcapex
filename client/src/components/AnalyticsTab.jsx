@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { differenceInCalendarMonths, format, isAfter, isBefore, isValid, parseISO, startOfMonth } from 'date-fns'
+import { parseISO, isValid, isBefore, isAfter, startOfMonth, differenceInCalendarMonths, format } from 'date-fns'
 import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import {
@@ -272,6 +272,107 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
     labels: employeesTop.map((e) => e.mitarbeiter),
     datasets: [{ label: metric === 'stunden_fakt' ? 'Fakturiert' : 'Geleistet', data: employeesTop.map((e) => e.sum), backgroundColor: 'rgba(99, 102, 241, 0.7)', borderRadius: 6 }]
   }), [employeesTop, metric])
+
+  const summaryStats = useMemo(() => {
+    const months = monthlyTotals.length
+    const totalHours = monthlyTotals.reduce((acc, row) => acc + Number(row.total || 0), 0)
+    const avgPerMonth = months ? totalHours / months : 0
+    const customerCount = kunden.length
+    const avgPerCustomer = customerCount ? totalHours / customerCount : 0
+    const activeProjects = projectsList.length
+    const employeeCount = employeeTotals.length
+    const medianEmployee = employeeCount ? calcMedian(employeeTotals.map((e) => Number(e.sum || 0))) : 0
+    const volatility = calcStdDev(monthlyTotals.map((row) => Number(row.total || 0)))
+    const volatilityPct = avgPerMonth ? (volatility / avgPerMonth) * 100 : null
+    return {
+      totalHours,
+      avgPerMonth,
+      customerCount,
+      avgPerCustomer,
+      activeProjects,
+      employeeCount,
+      medianEmployee,
+      volatility,
+      volatilityPct,
+      activeMonths: months,
+    }
+  }, [monthlyTotals, kunden, projectsList, employeeTotals])
+
+  const statsCards = useMemo(() => ([
+    {
+      label: 'Gesamtstunden',
+      value: `${formatHours(summaryStats.totalHours, 1)} h`,
+      hint: summaryStats.activeMonths ? `${summaryStats.activeMonths} Monate` : null,
+    },
+    {
+      label: 'Ø pro Monat',
+      value: `${formatHours(summaryStats.avgPerMonth, 1)} h`,
+      hint: summaryStats.activeMonths > 1 ? 'Basis: aktive Monate' : null,
+    },
+    {
+      label: 'Aktive Kunden',
+      value: summaryStats.customerCount.toLocaleString('de-DE'),
+      hint: summaryStats.avgPerCustomer ? `Ø ${formatHours(summaryStats.avgPerCustomer, 1)} h je Kunde` : null,
+    },
+    {
+      label: 'Aktive Projekte',
+      value: summaryStats.activeProjects.toLocaleString('de-DE'),
+    },
+    {
+      label: 'Aktive Mitarbeiter',
+      value: summaryStats.employeeCount.toLocaleString('de-DE'),
+      hint: summaryStats.employeeCount ? `Median: ${formatHours(summaryStats.medianEmployee, 1)} h` : null,
+    },
+    {
+      label: 'Volatilität',
+      value: `${formatHours(summaryStats.volatility, 1)} h`,
+      hint: summaryStats.volatilityPct != null ? `${summaryStats.volatilityPct.toFixed(1)}% vom Ø` : null,
+    },
+  ]), [summaryStats])
+
+  const hasSummaryData = summaryStats.activeMonths > 0 || summaryStats.totalHours > 0
+
+  const customerMomentum = useMemo(() => computeMomentum(monthlyCustomer.months, monthlyCustomer.perCustomer), [monthlyCustomer])
+
+  const projectMomentum = useMemo(() => computeMomentum(monthlyProject.months, monthlyProject.perProject), [monthlyProject])
+
+  const hasMomentumData = Boolean(
+    (customerMomentum.positive?.length || 0) +
+    (customerMomentum.negative?.length || 0) +
+    (projectMomentum.positive?.length || 0) +
+    (projectMomentum.negative?.length || 0)
+  )
+
+  const renderMomentumList = (entries, tone) => {
+    if (!entries.length) {
+      return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Keine signifikanten Veränderungen.</div>
+    }
+    const positive = tone === 'positive'
+    return entries.map((entry) => {
+      const diffHours = formatHours(Math.abs(entry.diff), 1)
+      const diffText = `${entry.diff > 0 ? '+' : '-'}${diffHours} h`
+      const pctText = entry.diffPct != null ? ` (${entry.diffPct > 0 ? '+' : ''}${entry.diffPct.toFixed(1)}%)` : ''
+      const rangeText = `${formatHours(entry.prev, 1)} h → ${formatHours(entry.current, 1)} h`
+      return (
+        <div
+          key={`${tone}-${entry.key}`}
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: 10,
+            background: positive ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{entry.key}</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rangeText}</span>
+          <span style={{ fontWeight: 600, color: positive ? '#22c55e' : '#ef4444' }}>{diffText}{pctText}</span>
+        </div>
+      )
+    })
+  }
 
   // --- Per-employee stacked bars (workload share per project) ---
   // Unit filter removed; always use all items
@@ -640,8 +741,57 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
             )}
           </div>
         )}
-      </div>
-      {/* First: Full-width segmented visualization with filter */}
+        </div>
+
+      {hasSummaryData && (
+        <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
+          <strong>Aggregierte Kennzahlen</strong>
+          <div style={{ display: 'grid', gap: 12, marginTop: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+            {statsCards.map((card) => (
+              <div key={card.label} className="panel" style={{ padding: 12, background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ color: 'var(--muted)', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>{card.label}</span>
+                <span style={{ fontSize: 20, fontWeight: 600 }}>{card.value}</span>
+                {card.hint ? <span style={{ color: 'var(--muted)', fontSize: 12 }}>{card.hint}</span> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hasMomentumData && (
+        <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
+          <strong>Momentum-Analyse</strong>
+          <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <span style={{ fontWeight: 600 }}>Momentum Kunden</span>
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <div>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase' }}>Aufwärtstrend</span>
+                  {renderMomentumList(customerMomentum.positive || [], 'positive')}
+                </div>
+                <div>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase' }}>Abwärtstrend</span>
+                  {renderMomentumList(customerMomentum.negative || [], 'negative')}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <span style={{ fontWeight: 600 }}>Momentum Projekte</span>
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <div>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase' }}>Aufwärtstrend</span>
+                  {renderMomentumList(projectMomentum.positive || [], 'positive')}
+                </div>
+                <div>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase' }}>Abwärtstrend</span>
+                  {renderMomentumList(projectMomentum.negative || [], 'negative')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="panel" style={{ padding: 12, gridColumn: '1 / -1' }}>
         <div style={{ position:'sticky', top:0, zIndex:1, background:'var(--panel)', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, paddingBottom:8 }}>
           <strong>Auslastung (pro Mitarbeiter · pro Projekt) – Prozentuale Verteilung</strong>
@@ -891,4 +1041,52 @@ export function buildTrendInsights(monthlyTotals, metricLabel) {
 
 export function buildTrendBullets(monthlyTotals, metricLabel) {
   return buildTrendInsights(monthlyTotals, metricLabel).map((entry) => entry.detail)
+}
+
+export function formatHours(value, fractionDigits = 2) {
+  const num = Number(value || 0)
+  if (!Number.isFinite(num)) {
+    return (0).toLocaleString('de-DE', { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })
+  }
+  return num.toLocaleString('de-DE', { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })
+}
+
+export function calcMedian(values) {
+  const arr = (values || []).map((v) => Number(v)).filter((v) => Number.isFinite(v)).sort((a, b) => a - b)
+  if (arr.length === 0) return 0
+  const mid = Math.floor(arr.length / 2)
+  if (arr.length % 2 === 0) return (arr[mid - 1] + arr[mid]) / 2
+  return arr[mid]
+}
+
+export function calcStdDev(values) {
+  const arr = (values || []).map((v) => Number(v)).filter((v) => Number.isFinite(v))
+  if (arr.length === 0) return 0
+  const mean = arr.reduce((sum, v) => sum + v, 0) / arr.length
+  const variance = arr.reduce((sum, v) => sum + (v - mean) ** 2, 0) / arr.length
+  return Math.sqrt(variance)
+}
+
+export function computeMomentum(months, seriesMap) {
+  if (!Array.isArray(months) || months.length < 2 || !(seriesMap instanceof Map)) {
+    return { positive: [], negative: [] }
+  }
+  const last = months[months.length - 1]
+  const prev = months[months.length - 2]
+  const positive = []
+  const negative = []
+  for (const [key, series] of seriesMap.entries()) {
+    if (!(series instanceof Map)) continue
+    const current = Number(series.get(last) || 0)
+    const previous = Number(series.get(prev) || 0)
+    const diff = current - previous
+    if (!diff) continue
+    const diffPct = previous ? (diff / previous) * 100 : (current ? null : 0)
+    const entry = { key, current, prev: previous, diff, diffPct }
+    if (diff > 0) positive.push(entry)
+    else negative.push(entry)
+  }
+  positive.sort((a, b) => b.diff - a.diff)
+  negative.sort((a, b) => a.diff - b.diff)
+  return { positive: positive.slice(0, 5), negative: negative.slice(0, 5) }
 }

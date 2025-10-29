@@ -5,6 +5,7 @@ export const DEFAULT_UNITS = [
   { id: 4, ext_id: 'h0zDeGnQIgfY3px', name: 'SAP Basis' },
   { id: 5, ext_id: 'YtK84kUP26b7bMw', name: 'RCC Transformation' },
   { id: 6, ext_id: 'eQnsTZhPu8GPFUm', name: 'RCC Architecture' },
+  { id: 7, ext_id: 'zZhkQJ460P62ZrB', name: 'Bremen' },
 ]
 
 export function getUnits(){
