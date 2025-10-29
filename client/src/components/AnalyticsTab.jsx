@@ -219,13 +219,13 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const barOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: 'var(--fg)' } }, title: { display: true, text: 'Top 15 Projekte', color: 'var(--fg)', font: { weight: '600' } } },
+    plugins: { legend: { position: 'top', labels: { color: 'var(--text)' } }, title: { display: true, text: 'Top 15 Projekte', color: 'var(--text)', font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
     scales: { x: { stacked: false, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } }, y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } } },
   }
 
   const doughnutOptions = {
-    plugins: { legend: { position: 'right', labels: { color: 'var(--fg)' } }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', color: 'var(--fg)', font: { weight: '600' } } },
+    plugins: { legend: { position: 'right', labels: { color: 'var(--text)' } }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', color: 'var(--text)', font: { weight: '600' } } },
     maintainAspectRatio: false,
   }
 
@@ -260,7 +260,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const lineOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: 'var(--fg)' } }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, color: 'var(--fg)', font: { weight: '600' } } },
+    plugins: { legend: { position: 'top', labels: { color: 'var(--text)' } }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, color: 'var(--text)', font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
     scales: { x: { stacked, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } }, y: { beginAtZero: true, stacked, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } } },
   }
@@ -831,7 +831,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
         <div style={{ display:'grid', gap:14 }}>
           {(limitCount>0 ? filteredEmpSegments.slice(0, limitCount) : filteredEmpSegments).map((row, idx) => (
             <div key={idx} style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:10, alignItems:'center' }}>
-              <div style={{ color:'var(--fg)' }}>{row.employee}</div>
+              <div style={{ color:'var(--text)' }}>{row.employee}</div>
               <div style={{ display:'flex', gap:8, border:'2px solid var(--border)', padding:6, borderRadius:12, overflow:'hidden', background:'var(--bg)', boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.25)' }}>
                 {row.segments.map((seg, sidx) => {
                   const pct = Math.round(seg.pct * 100)
