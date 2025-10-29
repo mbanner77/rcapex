@@ -6,6 +6,7 @@ export const DEFAULT_UNITS = [
   { id: 5, ext_id: 'YtK84kUP26b7bMw', name: 'RCC Transformation' },
   { id: 6, ext_id: 'eQnsTZhPu8GPFUm', name: 'RCC Architecture' },
   { id: 7, ext_id: 'zZhkQJ460P62ZrB', name: 'Bremen' },
+  { id: 8, ext_id: '80VqRNjrU97qbQ0', name: 'F&E' },
 ]
 
 export function getUnits(){

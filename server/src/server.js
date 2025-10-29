@@ -1688,6 +1688,7 @@ function resolveUnitExtIds() {
     'YtK84kUP26b7bMw', // RCC Transformation
     'eQnsTZhPu8GPFUm', // RCC Architecture
     'zZhkQJ460P62ZrB', // Bremen
+    '80VqRNjrU97qbQ0', // F&E
   ];
 }
 
@@ -1701,6 +1702,7 @@ function unitName(id) {
     'YtK84kUP26b7bMw': 'RCC Transformation',
     'eQnsTZhPu8GPFUm': 'RCC Architecture',
     'zZhkQJ460P62ZrB': 'Bremen',
+    '80VqRNjrU97qbQ0': 'F&E',
   }
   return map[id] || id || 'ALL'
 }
