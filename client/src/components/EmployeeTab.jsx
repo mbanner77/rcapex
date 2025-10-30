@@ -15,6 +15,7 @@ import {
 import { groupByEmployeeMonthly, extractMonths } from '../lib/transform'
 import { isInternalProject, isExcludedByLeistungsart } from '../shared/internal.js'
 import { getInternalMapping } from '../lib/mapping'
+import { getTimesheetExceptions } from '../lib/api'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Title, Tooltip, Legend)
 
@@ -34,6 +35,27 @@ export default function EmployeeTab({ stundenRaw, params }) {
   const [underBad, setUnderBad] = useState(16)
   const [unbilledWarnPct, setUnbilledWarnPct] = useState(20) // percent
   const [unbilledBadPct, setUnbilledBadPct] = useState(40)
+  const [tsExceptions, setTsExceptions] = useState([])
+
+  useEffect(() => {
+    let cancelled = false
+    getTimesheetExceptions().then((ex) => {
+      if (!cancelled && Array.isArray(ex)) setTsExceptions(ex)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const timesheetExceptionMap = useMemo(() => {
+    const map = new Map()
+    for (const entry of tsExceptions || []) {
+      if (!entry?.name) continue
+      map.set(entry.name, {
+        exclude: !!entry.exclude,
+        partTimeHours: entry.partTimeHours == null ? null : Number(entry.partTimeHours),
+      })
+    }
+    return map
+  }, [tsExceptions])
 
   const employees = useMemo(() => {
     const set = new Set()
@@ -260,7 +282,13 @@ function InternalVsBilled({ items }) {
           <label style={{ color:'var(--muted)', fontSize:12 }}>Unbilled Schlecht (%)</label>
           <input className="input" type="number" min="0" max="100" value={unbilledBadPct} onChange={(e)=>setUnbilledBadPct(Number(e.target.value))} style={{ width:90 }} />
         </div>
-        <UnderRecorded items={items} expectedPerDay={expectedPerDay} range={{ from: params?.datum_von, to: params?.datum_bis }} thresholds={{ warn: underWarn, bad: underBad }} />
+        <UnderRecorded
+          items={items}
+          expectedPerDay={expectedPerDay}
+          range={{ from: params?.datum_von, to: params?.datum_bis }}
+          thresholds={{ warn: underWarn, bad: underBad }}
+          exceptions={timesheetExceptionMap}
+        />
         <div style={{ height: 12 }} />
         <UnbilledRanking items={items} thresholds={{ warnPct: unbilledWarnPct, badPct: unbilledBadPct }} />
         <div style={{ height: 12 }} />
@@ -295,20 +323,27 @@ function workingDaysBetween(isoFrom, isoTo) {
   } catch { return 0 }
 }
 
-function UnderRecorded({ items, expectedPerDay, range, thresholds }) {
+function UnderRecorded({ items, expectedPerDay, range, thresholds, exceptions }) {
   const days = useMemo(() => workingDaysBetween(range?.from, range?.to), [range?.from, range?.to])
   const byEmp = useMemo(() => {
     const map = new Map()
     for (const x of items || []) {
       const emp = x?.mitarbeiter || 'Unbekannt'
+      const exception = exceptions?.get(emp)
+      if (exception?.exclude) continue
       const v = parseFloat(x?.stunden_gel)
       map.set(emp, (map.get(emp) || 0) + (Number.isNaN(v)?0:v))
     }
-    const expected = days * (Number(expectedPerDay)||0)
-    const arr = Array.from(map.entries()).map(([mitarbeiter, ist]) => ({ mitarbeiter, ist, soll: expected, diff: expected - ist }))
+    const arr = []
+    for (const [mitarbeiter, ist] of map.entries()) {
+      const exception = exceptions?.get(mitarbeiter)
+      const perDay = Number(exception?.partTimeHours ?? expectedPerDay) || 0
+      const expected = days * perDay
+      arr.push({ mitarbeiter, ist, soll: expected, diff: expected - ist })
+    }
     arr.sort((a,b)=> (b.diff||0) - (a.diff||0))
     return arr
-  }, [items, days, expectedPerDay])
+  }, [items, days, expectedPerDay, exceptions])
 
   const top = byEmp.slice(0, 15)
   const data = useMemo(() => ({
@@ -344,7 +379,7 @@ function UnderRecorded({ items, expectedPerDay, range, thresholds }) {
           </tbody>
         </table>
       </div>
-      <small style={{ color: 'var(--muted)' }}>Hinweis: Soll = Arbeitstage im Zeitraum × Sollstunden/Tag (ohne Feiertage).</small>
+      <small style={{ color: 'var(--muted)' }}>Hinweis: Soll = Arbeitstage im Zeitraum × Sollstunden/Tag (ohne Feiertage). Individuelle Teilzeit bzw. Ausschlüsse aus den Zeit­erfassungs-Ausnahmen werden berücksichtigt.</small>
     </div>
   )
 }

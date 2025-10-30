@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { listReportSchedules, upsertReportSchedule, deleteReportSchedule, runReportNow, getMailSettings, previewReportPdf, runInternalWatchdog, runTimesheetsWatchdog } from '../lib/api'
 import { getUnits } from '../lib/constants'
+import Modal from './Modal'
 
 const DEFAULT = {
   id: '',
@@ -195,126 +196,144 @@ export default function ReportSchedules({ onClose }){
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e)=>e.stopPropagation()} style={{ width:'90vw', maxWidth: 1200 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <h3 style={{ margin:0 }}>Report-Zeitpläne</h3>
-          <div style={{ flex:1 }} />
+    <Modal
+      title="Report-Zeitpläne"
+      subtitle="Automatisierte Reports & Watchdogs konfigurieren"
+      onClose={onClose}
+      size="xl"
+      bodyClassName="modal-body-scroll"
+      footer={
+        <div className="dialog-footer">
           <button className="btn" onClick={onClose}>Schließen</button>
+          <div className="dialog-footer-spacer" />
+          <button className="btn" onClick={newItem}>Neuen Zeitplan anlegen</button>
         </div>
-        {loading ? (
-          <div style={{ padding:12 }}>Lade…</div>
-        ) : (
-          <div style={{ marginTop: 12, display:'grid', gap:12 }}>
-            <div className="panel" style={{ padding:12 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <strong>Geplante Reports</strong>
+      }
+    >
+      {loading ? (
+        <div style={{ padding:12 }}>Lade…</div>
+      ) : (
+        <div className="dialog-stack">
+          <div className="panel dialog-section">
+            <div className="dialog-section-header">
+              <div className="dialog-section-heading">
+                <h3 className="dialog-section-title">Geplante Zeitpläne</h3>
+                <p className="dialog-section-subtitle">Alle eingerichteten Reports und Watchdog-Jobs</p>
+              </div>
+              <div className="dialog-section-spacer" />
+              <div className="dialog-section-actions">
                 <button className="btn" onClick={newItem}>Neu</button>
               </div>
-              <div style={{ marginTop:8 }}>
-                {items.length === 0 ? (
-                  <div style={{ color:'var(--muted)' }}>Keine Einträge</div>
-                ) : (
-                  <div style={{ overflowX:'auto' }}>
-                    <table className="table" style={{ width:'100%', minWidth: 1100, fontSize:13 }}>
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Aktiv</th>
-                          <th>Typ</th>
-                          <th>Unit</th>
-                          <th>Range/Regeln</th>
-                          <th>Häufigkeit</th>
-                          <th>Uhrzeit (UTC)</th>
-                          <th>Empfänger</th>
-                          <th>Aktion</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map(it => (
-                          <tr key={it.id}>
-                            <td>{it.name || '-'}</td>
-                            <td>{it.active ? 'Ja' : 'Nein'}</td>
-                            <td>{it.kind === 'watchdog_internal' ? 'Watchdog (intern)' : (it.kind==='watchdog_timesheets' ? 'Watchdog (Erfassung)' : `Report: ${it.report}`)}</td>
-                            <td>{it.unit || 'ALL'}</td>
-                            <td>
-                              {it.kind === 'watchdog_internal' ? (
-                                <>
-                                  <div>Weeks: {it.weeksBack||1} • Thresh: {(Number(it.threshold||0)*100).toFixed(0)}% • Comb: {it.combine||'or'}</div>
-                                  <div style={{ color:'var(--muted)' }}>
-                                    {it.useInternalShare!==false ? 'INT-Share ' : ''}
-                                    {it.useZeroLastWeek!==false ? 'Zero-LastWeek ' : ''}
-                                    {it.useMinTotal ? `MinTotal ${it.minTotalHours||0}h` : ''}
-                                  </div>
-                                </>
-                              ) : it.kind === 'watchdog_timesheets' ? (
-                                <>
-                                  <div>Modus: {it.mode||'weekly'} • h/Tag: {it.hoursPerDay||8} {it.mode==='monthly' && it.firstBusinessDay ? '• 1. Werktag' : ''}</div>
-                                </>
-                              ) : (
-                                it.rangePreset
-                              )}
-                            </td>
-                            <td>{it.frequency}</td>
-                            <td>{it.at || '06:00'}</td>
-                            <td>{Array.isArray(it.recipients) ? it.recipients.join(', ') : ''}</td>
-                            <td style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                              <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
-                              <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
-                              {it.kind === 'watchdog_internal' ? (
-                                <button className="btn" onClick={async ()=>{
-                                  try{
-                                    const params = new URLSearchParams({
-                                      unit: it.unit || 'ALL',
-                                      threshold: String(it.threshold ?? 0.2),
-                                      weeksBack: String(it.weeksBack || 1),
-                                      useInternalShare: String((it.useInternalShare ?? true) !== false),
-                                      useZeroLastWeek: String((it.useZeroLastWeek ?? true) !== false),
-                                      useMinTotal: String((it.useMinTotal ?? false) === true),
-                                      minTotalHours: String(it.minTotalHours || 0),
-                                      combine: it.combine === 'and' ? 'and' : 'or'
-                                    })
-                                    const url = `/api/watchdogs/internal/preview-page?${params.toString()}`
-                                    setPreviewUrl(url)
-                                  }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
-                                }}>Watchdog ansehen</button>
-                              ) : it.kind === 'watchdog_timesheets' ? (
-                                <button className="btn" onClick={async ()=>{
-                                  try{
-                                    const params = new URLSearchParams({ unit: it.unit || 'ALL', mode: it.mode || 'weekly', hoursPerDay: String(it.hoursPerDay || 8) })
-                                    const url = `/api/watchdogs/timesheets/preview-page?${params.toString()}`
-                                    setPreviewUrl(url)
-                                  }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
-                                }}>Watchdog ansehen</button>
-                              ) : (
-                                <button className="btn" onClick={async ()=>{
-                                  try{
-                                    const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
-                                    const url = `/api/reports/preview-page?${params.toString()}`
-                                    window.open(url, '_blank', 'noreferrer')
-                                  }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
-                                }}>Vorschau</button>
-                              )}
-                              <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
-                              <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
-                              <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
             </div>
+            <div style={{ marginTop:8 }}>
+              {items.length === 0 ? (
+                <div style={{ color:'var(--muted)' }}>Keine Einträge</div>
+              ) : (
+                <div style={{ overflowX:'auto' }}>
+                  <table className="table" style={{ width:'100%', minWidth: 1100, fontSize:13 }}>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Aktiv</th>
+                        <th>Typ</th>
+                        <th>Unit</th>
+                        <th>Range/Regeln</th>
+                        <th>Häufigkeit</th>
+                        <th>Uhrzeit (UTC)</th>
+                        <th>Empfänger</th>
+                        <th>Aktion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map(it => (
+                        <tr key={it.id}>
+                          <td>{it.name || '-'}</td>
+                          <td>{it.active ? 'Ja' : 'Nein'}</td>
+                          <td>{it.kind === 'watchdog_internal' ? 'Watchdog (intern)' : (it.kind==='watchdog_timesheets' ? 'Watchdog (Erfassung)' : `Report: ${it.report}`)}</td>
+                          <td>{it.unit || 'ALL'}</td>
+                          <td>
+                            {it.kind === 'watchdog_internal' ? (
+                              <>
+                                <div>Weeks: {it.weeksBack||1} • Thresh: {(Number(it.threshold||0)*100).toFixed(0)}% • Comb: {it.combine||'or'}</div>
+                                <div style={{ color:'var(--muted)' }}>
+                                  {it.useInternalShare!==false ? 'INT-Share ' : ''}
+                                  {it.useZeroLastWeek!==false ? 'Zero-LastWeek ' : ''}
+                                  {it.useMinTotal ? `MinTotal ${it.minTotalHours||0}h` : ''}
+                                </div>
+                              </>
+                            ) : it.kind === 'watchdog_timesheets' ? (
+                              <>
+                                <div>Modus: {it.mode||'weekly'} • h/Tag: {it.hoursPerDay||8} {it.mode==='monthly' && it.firstBusinessDay ? '• 1. Werktag' : ''}</div>
+                              </>
+                            ) : (
+                              it.rangePreset
+                            )}
+                          </td>
+                          <td>{it.frequency}</td>
+                          <td>{it.at || '06:00'}</td>
+                          <td>{Array.isArray(it.recipients) ? it.recipients.join(', ') : ''}</td>
+                          <td style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                            <button className="btn" onClick={()=>edit(it)}>Bearbeiten</button>
+                            <button className="btn" onClick={()=>runNow(it)}>Jetzt senden</button>
+                            {it.kind === 'watchdog_internal' ? (
+                              <button className="btn" onClick={async ()=>{
+                                try{
+                                  const params = new URLSearchParams({
+                                    unit: it.unit || 'ALL',
+                                    threshold: String(it.threshold ?? 0.2),
+                                    weeksBack: String(it.weeksBack || 1),
+                                    useInternalShare: String((it.useInternalShare ?? true) !== false),
+                                    useZeroLastWeek: String((it.useZeroLastWeek ?? true) !== false),
+                                    useMinTotal: String((it.useMinTotal ?? false) === true),
+                                    minTotalHours: String(it.minTotalHours || 0),
+                                    combine: it.combine === 'and' ? 'and' : 'or'
+                                  })
+                                  const url = `/api/watchdogs/internal/preview-page?${params.toString()}`
+                                  setPreviewUrl(url)
+                                }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
+                              }}>Watchdog ansehen</button>
+                            ) : it.kind === 'watchdog_timesheets' ? (
+                              <button className="btn" onClick={async ()=>{
+                                try{
+                                  const params = new URLSearchParams({ unit: it.unit || 'ALL', mode: it.mode || 'weekly', hoursPerDay: String(it.hoursPerDay || 8) })
+                                  const url = `/api/watchdogs/timesheets/preview-page?${params.toString()}`
+                                  setPreviewUrl(url)
+                                }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
+                              }}>Watchdog ansehen</button>
+                            ) : (
+                              <button className="btn" onClick={async ()=>{
+                                try{
+                                  const params = new URLSearchParams({ report: it.report || 'stunden', unit: it.unit || 'ALL', rangePreset: it.rangePreset || 'last_month' })
+                                  const url = `/api/reports/preview-page?${params.toString()}`
+                                  window.open(url, '_blank', 'noreferrer')
+                                }catch(e){ alert('Fehler: '+(e?.response?.data?.message || e.message)) }
+                              }}>Vorschau</button>
+                            )}
+                            <button className="btn" onClick={()=>{ const c={...it, id:'' , name:(it.name||'')+' (Kopie)'}; edit(c) }}>Duplizieren</button>
+                            <button className="btn" onClick={()=>{ const toggled={...it, active: !it.active}; upsertReportSchedule(toggled).then(()=>listReportSchedules().then(r=>setItems(r.items||[]))) }}>Aktiv {it.active? 'aus' : 'an'}</button>
+                            <button className="btn" onClick={()=>remove(it.id)}>Löschen</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
 
-            <div className="panel" style={{ padding:12 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <strong>Eintrag {form.id ? '(Bearbeiten)' : '(Neu)'} </strong>
-                <div style={{ flex:1 }} />
+          <div className="panel dialog-section">
+            <div className="dialog-section-header">
+              <div className="dialog-section-heading">
+                <h3 className="dialog-section-title">Eintrag {form.id ? '(Bearbeiten)' : '(Neu)'}</h3>
+                <p className="dialog-section-subtitle">Konfiguration für Report oder Watchdog</p>
+              </div>
+              <div className="dialog-section-spacer" />
+              <div className="dialog-section-actions">
                 <button className="btn" onClick={save} disabled={saving}>{saving? 'Speichere…' : 'Speichern'}</button>
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:12, marginTop:8 }}>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:12, marginTop:8 }}>
                 <Labeled label="Name">
                   <input className="input" value={form.name} onChange={(e)=>update('name', e.target.value)} placeholder="Monatsreport" />
                 </Labeled>
@@ -463,8 +482,7 @@ export default function ReportSchedules({ onClose }){
             <small style={{ color:'var(--muted)' }}>Zeitpläne werden in <code>server/data/config.json</code> gespeichert und von der Instanz per Minutentakt (UTC) geprüft. Versand erfolgt per SMTP.</small>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
