@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { getUnits } from '../lib/constants'
 import { fetchTimesheetsReport, runTimesheetsWatchdog, getMailSettings, getTimesheetExceptions, updateTimesheetExceptions } from '../lib/api'
+import Modal from './Modal'
 
 function fmt(n){
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n||0))
@@ -419,111 +419,92 @@ export default function TimesheetsTab(){
       </div>
 
       {/* Exceptions Dialog */}
-      {showExceptionsDialog && createPortal(
-        <div 
-          style={{ 
-            position:'fixed', 
-            inset:0, 
-            background:'rgba(0,0,0,0.7)', 
-            display:'flex', 
-            alignItems:'center', 
-            justifyContent:'center', 
-            zIndex:9999,
-            padding:20
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowExceptionsDialog(false)
-          }}
-        >
-          <div 
-            className="panel" 
-            style={{ 
-              width:'100%', 
-              maxWidth:800, 
-              maxHeight:'90vh', 
-              overflow:'auto', 
-              padding:20,
-              position:'relative',
-              zIndex:10000
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-              <h3 style={{ margin:0 }}>Ausnahmen verwalten</h3>
-              <button className="btn" onClick={() => setShowExceptionsDialog(false)} style={{ padding:'8px 12px' }}>✕</button>
-            </div>
-            <div style={{ marginBottom:16, color:'var(--muted)', fontSize:14 }}>
-              <p style={{ margin:'0 0 8px 0' }}><strong>Ausschluss:</strong> Mitarbeiter wird komplett aus der Liste entfernt</p>
-              <p style={{ margin:0 }}><strong>Teilzeit:</strong> Individuelle Stunden/Tag für die Berechnung (z.B. 4 für 50% Teilzeit)</p>
-            </div>
-            <div style={{ marginBottom:16 }}>
-              <button className="btn" onClick={addException}>+ Ausnahme hinzufügen</button>
-            </div>
-            <div style={{ overflowX:'auto' }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Mitarbeiter-Name</th>
-                    <th style={{ textAlign:'center' }}>Ausschluss</th>
-                    <th>Teilzeit (h/Tag)</th>
-                    <th style={{ width:60 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {exceptions.map((ex, idx) => (
-                    <tr key={idx}>
-                      <td>
-                        <input 
-                          className="input" 
-                          value={ex.name} 
-                          onChange={(e) => updateException(idx, 'name', e.target.value)}
-                          placeholder="Name eingeben"
-                          style={{ width:'100%' }}
-                        />
-                      </td>
-                      <td style={{ textAlign:'center' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={ex.exclude} 
-                          onChange={(e) => updateException(idx, 'exclude', e.target.checked)}
-                        />
-                      </td>
-                      <td>
-                        <input 
-                          className="input" 
-                          type="number" 
-                          min={0} 
-                          max={12} 
-                          step={0.5}
-                          value={ex.partTimeHours ?? ''} 
-                          onChange={(e) => updateException(idx, 'partTimeHours', e.target.value ? Number(e.target.value) : null)}
-                          placeholder="Standard"
-                          style={{ width:100 }}
-                          disabled={ex.exclude}
-                        />
-                      </td>
-                      <td>
-                        <button className="btn" onClick={() => removeException(idx)} style={{ padding:'4px 8px' }}>🗑️</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {exceptions.length === 0 && (
-                    <tr>
-                      <td colSpan={4} style={{ textAlign:'center', color:'var(--muted)' }}>Keine Ausnahmen definiert</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:16 }}>
+      {showExceptionsDialog && (
+        <Modal
+          title="Ausnahmen verwalten"
+          subtitle="Ausschlüsse und individuelle Teilzeit pro Mitarbeiter definieren"
+          onClose={() => setShowExceptionsDialog(false)}
+          size="lg"
+          bodyClassName="modal-body-scroll"
+          footer={
+            <div className="dialog-footer">
               <button className="btn" onClick={() => setShowExceptionsDialog(false)}>Abbrechen</button>
               <button className="btn" onClick={saveExceptions} disabled={exceptionsLoading}>
                 {exceptionsLoading ? 'Speichern…' : 'Speichern'}
               </button>
             </div>
+          }
+        >
+          <div className="dialog-stack">
+            <div className="panel dialog-section">
+              <div className="dialog-section-header">
+                <div className="dialog-section-heading">
+                  <h3 className="dialog-section-title">Regeln</h3>
+                  <p className="dialog-section-subtitle">Ausschlüsse entfernen Mitarbeitende komplett, Teilzeit legt Sollstunden/Tag fest.</p>
+                </div>
+                <div className="dialog-section-actions">
+                  <button className="btn" onClick={addException}>+ Ausnahme hinzufügen</button>
+                </div>
+              </div>
+              <div className="dialog-scroll-x">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Mitarbeiter-Name</th>
+                      <th className="th-right">Ausschluss</th>
+                      <th>Teilzeit (h/Tag)</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exceptions.map((ex, idx) => (
+                      <tr key={idx}>
+                        <td>
+                          <input
+                            className="input"
+                            value={ex.name}
+                            onChange={(e) => updateException(idx, 'name', e.target.value)}
+                            placeholder="Name eingeben"
+                            style={{ width:'100%' }}
+                          />
+                        </td>
+                        <td style={{ textAlign:'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={ex.exclude}
+                            onChange={(e) => updateException(idx, 'exclude', e.target.checked)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            max={12}
+                            step={0.5}
+                            value={ex.partTimeHours ?? ''}
+                            onChange={(e) => updateException(idx, 'partTimeHours', e.target.value ? Number(e.target.value) : null)}
+                            placeholder="Standard"
+                            style={{ width:120 }}
+                            disabled={ex.exclude}
+                          />
+                        </td>
+                        <td style={{ width:80 }}>
+                          <button className="btn" onClick={() => removeException(idx)} title="Entfernen">🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {exceptions.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="dialog-empty">Keine Ausnahmen definiert</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>,
-        document.body
+        </Modal>
       )}
     </div>
   )

@@ -158,158 +158,171 @@ export default function InternalMappingDialog({ onClose }){
       size="xl"
       bodyClassName="modal-body-scroll"
       footer={
-        <div style={{ display:'flex', gap:8 }}>
+        <div className="dialog-footer">
           <button className="btn" onClick={save}>Speichern</button>
           <button className="btn" onClick={reset}>Zurücksetzen</button>
           <button className="btn" onClick={onClose}>Schließen</button>
-          {msg && <span style={{ color:'var(--muted)' }}>{msg}</span>}
+          <div className="dialog-footer-spacer" />
+          {msg && <span className="dialog-footer-msg">{msg}</span>}
         </div>
       }
     >
-      <div className="panel" style={{ padding: 12 }}>
-        <div style={{ color:'var(--muted)', marginBottom:8 }}>
-          Definiere, welche Projekte als INTERN gelten. Zwei Mechanismen:
-          <ul style={{ margin:'6px 0 0 18px' }}>
-            <li><strong>Projektcodes</strong>: exakte Codes, z. B. "INT", "ADMIN", "RCCINT"</li>
-            <li><strong>Kürzel/Token</strong>: Teilstrings, die in Code oder Name vorkommen, z. B. "intern", "admin"</li>
-          </ul>
-        </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8, flexWrap:'wrap' }}>
-          <button className="btn" onClick={loadFromServer}>Vom Server laden</button>
-          <button className="btn" onClick={saveToServer}>Auf Server speichern</button>
-          {srvMsg && <span style={{ color:'var(--muted)' }}>{srvMsg}</span>}
-          <div style={{ flex:1 }} />
-          <button className="btn" onClick={exportJson}>Export</button>
-          <button className="btn" onClick={importJson}>Import</button>
-        </div>
-        <div className="panel" style={{ padding:10, marginBottom:8 }}>
-          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-            <strong>Werkzeuge</strong>
-            <button className="btn" onClick={normalizeCodesUpper}>Codes UPPER</button>
-            <button className="btn" onClick={normalizeTokensLower}>Tokens lower</button>
-            <button className="btn" onClick={sortBoth}>Sortieren</button>
-            <button className="btn" onClick={dedupeBoth}>Duplikate entfernen</button>
-            <div style={{ flex:1 }} />
-            <span className="badge">Codes: {counts.codes}</span>
-            <span className="badge">Tokens: {counts.tokens}</span>
-            {toolsMsg && <span style={{ color:'var(--muted)' }}>{toolsMsg}</span>}
-          </div>
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-          <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-              <h4 style={{ margin:0 }}>Projektcodes (exakt)</h4>
-              <div style={{ flex:1 }} />
-              <button className="btn" onClick={addProject}>+ Code</button>
-              <button className="btn" onClick={bulkAddProjects}>Bulk…</button>
+      <div className="dialog-stack">
+        <div className="panel dialog-section">
+          <div className="dialog-section-header">
+            <div className="dialog-section-heading">
+              <h3 className="dialog-section-title">Definition & Austausch</h3>
+              <p className="dialog-section-subtitle">Legt fest, welche Projekte als INTERN gelten und synchronisiere das Mapping.</p>
             </div>
-            <div style={{ display:'grid', gap:8 }}>
-              {projects.map((p, idx) => (
-                <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:8 }}>
-                  <input className="input" placeholder="z. B. INT" value={p} onChange={(e)=>updateProject(idx, e.target.value)} />
-                  <button className="btn" onClick={()=>removeProject(idx)}>Löschen</button>
+            <div className="dialog-section-actions">
+              <button className="btn" onClick={loadFromServer}>Vom Server laden</button>
+              <button className="btn" onClick={saveToServer}>Auf Server speichern</button>
+              <button className="btn" onClick={exportJson}>Export</button>
+              <button className="btn" onClick={importJson}>Import</button>
+            </div>
+          </div>
+          <p className="dialog-section-note">
+            Zwei Mechanismen: <strong>Projektcodes</strong> (exakt) und <strong>Kürzel/Token</strong> (Teilstrings). Die Regeln wirken zusätzlich auf Leistungsarten.
+          </p>
+          {srvMsg && <div className="dialog-footer-msg">{srvMsg}</div>}
+          <div className="dialog-divider" />
+          <div className="panel dialog-section" style={{ padding:16 }}>
+            <div className="dialog-inline" style={{ gap:12 }}>
+              <strong>Werkzeuge</strong>
+              <button className="btn" onClick={normalizeCodesUpper}>Codes UPPER</button>
+              <button className="btn" onClick={normalizeTokensLower}>Tokens lower</button>
+              <button className="btn" onClick={sortBoth}>Sortieren</button>
+              <button className="btn" onClick={dedupeBoth}>Duplikate entfernen</button>
+              <div className="dialog-footer-spacer" />
+              <span className="badge">Codes: {counts.codes}</span>
+              <span className="badge">Tokens: {counts.tokens}</span>
+              {toolsMsg && <span className="dialog-footer-msg">{toolsMsg}</span>}
+            </div>
+          </div>
+          <div className="dialog-section-grid" style={{ gridTemplateColumns:'1fr 1fr', gap:18 }}>
+            <div>
+              <div className="dialog-inline" style={{ justifyContent:'space-between' }}>
+                <h4 style={{ margin:0 }}>Projektcodes (exakt)</h4>
+                <div className="dialog-section-actions">
+                  <button className="btn" onClick={addProject}>+ Code</button>
+                  <button className="btn" onClick={bulkAddProjects}>Bulk…</button>
                 </div>
-              ))}
+              </div>
+              <div className="dialog-section-grid" style={{ gap:8 }}>
+                {projects.map((p, idx) => (
+                  <div key={idx} className="dialog-section-grid" style={{ gridTemplateColumns:'1fr 90px', gap:8 }}>
+                    <input className="input" placeholder="z. B. INT" value={p} onChange={(e)=>updateProject(idx, e.target.value)} />
+                    <button className="btn" onClick={()=>removeProject(idx)}>Löschen</button>
+                  </div>
+                ))}
+                {projects.length === 0 && <div className="dialog-section-note">Noch keine Codes definiert.</div>}
+              </div>
             </div>
-          </div>
-          <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-              <h4 style={{ margin:0 }}>Kürzel/Token (enthält)</h4>
-              <div style={{ flex:1 }} />
-              <button className="btn" onClick={addToken}>+ Token</button>
-              <button className="btn" onClick={bulkAddTokens}>Bulk…</button>
-            </div>
-            <div style={{ display:'grid', gap:8 }}>
-              {tokens.map((t, idx) => (
-                <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:8 }}>
-                  <input className="input" placeholder="z. B. intern" value={t} onChange={(e)=>updateToken(idx, e.target.value)} />
-                  <button className="btn" onClick={()=>removeToken(idx)}>Löschen</button>
+            <div>
+              <div className="dialog-inline" style={{ justifyContent:'space-between' }}>
+                <h4 style={{ margin:0 }}>Kürzel/Token (enthält)</h4>
+                <div className="dialog-section-actions">
+                  <button className="btn" onClick={addToken}>+ Token</button>
+                  <button className="btn" onClick={bulkAddTokens}>Bulk…</button>
                 </div>
-              ))}
+              </div>
+              <div className="dialog-section-grid" style={{ gap:8 }}>
+                {tokens.map((t, idx) => (
+                  <div key={idx} className="dialog-section-grid" style={{ gridTemplateColumns:'1fr 90px', gap:8 }}>
+                    <input className="input" placeholder="z. B. intern" value={t} onChange={(e)=>updateToken(idx, e.target.value)} />
+                    <button className="btn" onClick={()=>removeToken(idx)}>Löschen</button>
+                  </div>
+                ))}
+                {tokens.length === 0 && <div className="dialog-section-note">Noch keine Token gepflegt.</div>}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="panel" style={{ padding:10 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-          <strong>Regeln (flexibel)</strong>
-          <div style={{ flex:1 }} />
-          <button className="btn" onClick={()=>addRule({ type:'leistungsart_prefix', op:'include', value:'N' })}>+ LA include</button>
-          <button className="btn" onClick={()=>addRule({ type:'leistungsart_prefix', op:'exclude', value:'J' })}>+ LA exclude</button>
-          <button className="btn" onClick={()=>addRule({ type:'code_exact', value:'' })}>+ Code exakt</button>
-          <button className="btn" onClick={()=>addRule({ type:'token_substring', value:'' })}>+ Token</button>
-          <button className="btn" onClick={()=>addRule({ type:'legacy_int_prefix' })}>+ Legacy INT prefix</button>
-          <button className="btn" onClick={()=>addRule({ type:'legacy_int_token' })}>+ Legacy INT token</button>
-        </div>
-        <div style={{ overflowX:'auto', paddingBottom: 8 }}>
-          <table className="table sticky" style={{ minWidth: 760 }}>
-            <thead>
-              <tr>
-                <th>Aktiv</th>
-                <th>Typ</th>
-                <th>Op</th>
-                <th>Wert</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((r, idx)=> (
-                <tr key={r.id||idx}>
-                  <td><input type="checkbox" checked={r.enabled!==false} onChange={(e)=>updateRule(idx, { enabled: e.target.checked })} /></td>
-                  <td>
-                    <select className="input" value={r.type||''} onChange={(e)=>updateRule(idx, { type: e.target.value })}>
-                      <option value="leistungsart_prefix">leistungsart_prefix</option>
-                      <option value="code_exact">code_exact</option>
-                      <option value="token_substring">token_substring</option>
-                      <option value="legacy_int_prefix">legacy_int_prefix</option>
-                      <option value="legacy_int_token">legacy_int_token</option>
-                    </select>
-                  </td>
-                  <td>
-                    {r.type==='leistungsart_prefix' ? (
-                      <select className="input" value={r.op||'include'} onChange={(e)=>updateRule(idx, { op: e.target.value })}>
-                        <option value="include">include</option>
-                        <option value="exclude">exclude</option>
-                      </select>
-                    ) : <span className="muted">—</span>}
-                  </td>
-                  <td>
-                    {(r.type==='leistungsart_prefix' || r.type==='code_exact' || r.type==='token_substring') ? (
-                      <input className="input" value={r.value||''} onChange={(e)=>updateRule(idx, { value: e.target.value })} placeholder={r.type==='leistungsart_prefix'? 'z. B. N, J' : r.type==='code_exact'? 'z. B. INT' : 'z. B. intern'} />
-                    ) : <span className="muted">—</span>}
-                  </td>
-                  <td style={{ whiteSpace:'nowrap' }}>
-                    <button className="btn" onClick={()=>moveRule(idx,-1)} title="nach oben">↑</button>
-                    <button className="btn" onClick={()=>moveRule(idx, 1)} title="nach unten">↓</button>
-                    <button className="btn" onClick={()=>removeRule(idx)} title="löschen">Löschen</button>
-                  </td>
+        <div className="panel dialog-section">
+          <div className="dialog-section-header">
+            <div className="dialog-section-heading">
+              <h3 className="dialog-section-title">Regeln (flexibel)</h3>
+              <p className="dialog-section-subtitle">Feinsteuerung über Leistungsarten und Legacy-Mappings.</p>
+            </div>
+            <div className="dialog-section-actions">
+              <button className="btn" onClick={()=>addRule({ type:'leistungsart_prefix', op:'include', value:'N' })}>+ LA include</button>
+              <button className="btn" onClick={()=>addRule({ type:'leistungsart_prefix', op:'exclude', value:'J' })}>+ LA exclude</button>
+              <button className="btn" onClick={()=>addRule({ type:'code_exact', value:'' })}>+ Code exakt</button>
+              <button className="btn" onClick={()=>addRule({ type:'token_substring', value:'' })}>+ Token</button>
+              <button className="btn" onClick={()=>addRule({ type:'legacy_int_prefix' })}>+ Legacy INT prefix</button>
+              <button className="btn" onClick={()=>addRule({ type:'legacy_int_token' })}>+ Legacy INT token</button>
+            </div>
+          </div>
+          <div style={{ overflowX:'auto', paddingBottom:8 }}>
+            <table className="table sticky" style={{ minWidth: 760 }}>
+              <thead>
+                <tr>
+                  <th>Aktiv</th>
+                  <th>Typ</th>
+                  <th>Op</th>
+                  <th>Wert</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rules.map((r, idx)=> (
+                  <tr key={r.id||idx}>
+                    <td><input type="checkbox" checked={r.enabled!==false} onChange={(e)=>updateRule(idx, { enabled: e.target.checked })} /></td>
+                    <td>
+                      <select className="input" value={r.type||''} onChange={(e)=>updateRule(idx, { type: e.target.value })}>
+                        <option value="leistungsart_prefix">leistungsart_prefix</option>
+                        <option value="code_exact">code_exact</option>
+                        <option value="token_substring">token_substring</option>
+                        <option value="legacy_int_prefix">legacy_int_prefix</option>
+                        <option value="legacy_int_token">legacy_int_token</option>
+                      </select>
+                    </td>
+                    <td>
+                      {r.type==='leistungsart_prefix' ? (
+                        <select className="input" value={r.op||'include'} onChange={(e)=>updateRule(idx, { op: e.target.value })}>
+                          <option value="include">include</option>
+                          <option value="exclude">exclude</option>
+                        </select>
+                      ) : <span className="muted">—</span>}
+                    </td>
+                    <td>
+                      {(r.type==='leistungsart_prefix' || r.type==='code_exact' || r.type==='token_substring') ? (
+                        <input className="input" value={r.value||''} onChange={(e)=>updateRule(idx, { value: e.target.value })} placeholder={r.type==='leistungsart_prefix'? 'z. B. N, J' : r.type==='code_exact'? 'z. B. INT' : 'z. B. intern'} />
+                      ) : <span className="muted">—</span>}
+                    </td>
+                    <td style={{ whiteSpace:'nowrap', display:'flex', gap:6 }}>
+                      <button className="btn" onClick={()=>moveRule(idx,-1)} title="nach oben">↑</button>
+                      <button className="btn" onClick={()=>moveRule(idx, 1)} title="nach unten">↓</button>
+                      <button className="btn" onClick={()=>removeRule(idx)} title="löschen">Löschen</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="dialog-section-note">Standardregeln: Leistungsart include=N, exclude=J sowie Legacy INT (Prefix/Token). Passe sie hier an oder deaktiviere sie.</p>
         </div>
-        <div style={{ marginTop:8, color:'var(--muted)' }}>
-          Standardmäßig sind folgende Regeln vorhanden: Leistungsart include=N, exclude=J, Legacy INT (Prefix/Token). Du kannst sie hier anpassen oder deaktivieren.
-        </div>
-      </div>
 
-      <div className="panel" style={{ padding:10 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-          <strong>Schnelltest</strong>
-          <span className="muted">(Prüft Codes/Tokens sowie Leistungsart beginnend mit N)</span>
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8 }}>
-          <input className="input" placeholder="Projektcode" value={test.code} onChange={(e)=>setTest(t=>({...t, code:e.target.value}))} />
-          <input className="input" placeholder="Projektname" value={test.name} onChange={(e)=>setTest(t=>({...t, name:e.target.value}))} />
-          <input className="input" placeholder="Leistungsart" value={test.la} onChange={(e)=>setTest(t=>({...t, la:e.target.value}))} />
-        </div>
-        <div style={{ marginTop:8 }}>
-          {testRes.matched ? (
-            <span className="badge">Treffer: {testRes.by} {testRes.value? `(${String(testRes.value)})`: ''}</span>
-          ) : (
-            <span className="badge">Kein Treffer</span>
-          )}
+        <div className="panel dialog-section">
+          <div className="dialog-section-header">
+            <div className="dialog-section-heading">
+              <h3 className="dialog-section-title">Schnelltest</h3>
+              <p className="dialog-section-subtitle">Prüft eine Kombination aus Code, Name und Leistungsart.</p>
+            </div>
+          </div>
+          <div className="dialog-section-grid" style={{ gridTemplateColumns:'repeat(3, 1fr)', gap:10 }}>
+            <input className="input" placeholder="Projektcode" value={test.code} onChange={(e)=>setTest(t=>({...t, code:e.target.value}))} />
+            <input className="input" placeholder="Projektname" value={test.name} onChange={(e)=>setTest(t=>({...t, name:e.target.value}))} />
+            <input className="input" placeholder="Leistungsart" value={test.la} onChange={(e)=>setTest(t=>({...t, la:e.target.value}))} />
+          </div>
+          <div>
+            {testRes.matched ? (
+              <span className="badge">Treffer: {testRes.by} {testRes.value? `(${String(testRes.value)})`: ''}</span>
+            ) : (
+              <span className="badge">Kein Treffer</span>
+            )}
+          </div>
         </div>
       </div>
     </Modal>
