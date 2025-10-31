@@ -2,14 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { parseISO, isValid, isBefore, isAfter, startOfMonth, differenceInCalendarMonths, format } from 'date-fns'
 import { exportGenericCsv } from '../lib/export'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
-import {
+import { 
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  ArcElement,
   PointElement,
   LineElement,
-  ArcElement,
   Title,
   Tooltip,
   Legend,
@@ -26,14 +26,13 @@ import {
   listCustomersFromItems,
   employeeTotalsFromItems,
 } from '../lib/transform'
+import { chartPalette, chartTooltip, withChartTheme } from './chartTheme'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, PointElement, LineElement, Title, Tooltip, Legend)
 
 const palette = {
-  text: 'var(--chart-text)',
-  textMuted: 'var(--chart-muted)',
-  grid: 'var(--chart-grid)',
-  chipFallback: 'var(--panel)' ,
+  ...chartPalette,
+  chipFallback: 'var(--panel)',
 }
 
 const INSIGHT_TYPE_META = {
@@ -223,18 +222,18 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
     ],
   }), [totals])
 
-  const barOptions = {
+  const barOptions = withChartTheme({
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: palette.text } }, title: { display: true, text: 'Top 15 Projekte', color: palette.text, font: { weight: '600' } } },
+    plugins: { legend: { position: 'top' }, title: { display: true, text: 'Top 15 Projekte', font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
-    scales: { x: { stacked: false, grid: { color: palette.grid }, ticks: { color: palette.textMuted } }, y: { beginAtZero: true, grid: { color: palette.grid }, ticks: { color: palette.textMuted } } },
-  }
+    scales: { x: { stacked: false }, y: { beginAtZero: true } },
+  })
 
-  const doughnutOptions = {
-    plugins: { legend: { position: 'right', labels: { color: palette.text } }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', color: palette.text, font: { weight: '600' } } },
+  const doughnutOptions = withChartTheme({
+    plugins: { legend: { position: 'right' }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', font: { weight: '600' } } },
     maintainAspectRatio: false,
-  }
+  })
 
   // Monthly time series by selected dimension
   const monthlyCustomer = useMemo(() => groupByCustomerMonthly(items, metric, project || null), [items, metric, project])
@@ -264,13 +263,13 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
     return { labels, datasets }
   }, [dimension, monthlyCustomer, monthlyProject, monthlyEmployee, topKeys])
 
-  const lineOptions = {
+  const lineOptions = withChartTheme({
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: palette.text } }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, color: palette.text, font: { weight: '600' } } },
+    plugins: { legend: { position: 'top' }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
-    scales: { x: { stacked, grid: { color: palette.grid }, ticks: { color: palette.textMuted } }, y: { beginAtZero: true, stacked, grid: { color: palette.grid }, ticks: { color: palette.textMuted } } },
-  }
+    scales: { x: { stacked }, y: { beginAtZero: true, stacked } },
+  })
 
   // Employees bar and Customer distribution donut
   const employeeTotals = useMemo(() => employeeTotalsFromItems(items, metric), [items, metric])
@@ -890,7 +889,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
         </div>
         <div style={{ height: 12 }} />
         <div className="chart">
-          <Bar data={employeesBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Top 15 Mitarbeiter' } }, scales: { y: { beginAtZero: true } } }} />
+          <Bar data={employeesBar} options={withChartTheme({ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Top 15 Mitarbeiter' } }, scales: { x: {}, y: { beginAtZero: true } } })} />
         </div>
       </div>
       <div className="panel" style={{ padding: 12 }}>
@@ -913,7 +912,7 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
           </select>
         </div>
         <div className="chart-lg">
-          <Bar data={empStacked} options={{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }} />
+          <Bar data={empStacked} options={withChartTheme({ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:`Auslastung je Mitarbeiter` } }, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } })} />
         </div>
       </div>
       <div className="panel" style={{ padding: 12 }}>

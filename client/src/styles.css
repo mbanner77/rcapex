@@ -9,6 +9,11 @@
   --accent:#34d399;
   --border:#1b233d;
   --shadow:0 24px 60px rgba(5,8,18,0.45);
+  --chart-text:#e8ecff;
+  --chart-muted:rgba(200,208,240,0.82);
+  --chart-grid:rgba(148,163,184,0.24);
+  --chart-tooltip-bg:rgba(8,12,28,0.92);
+  --chart-tooltip-border:rgba(148,163,184,0.35);
 }
 
 *{box-sizing:border-box}
