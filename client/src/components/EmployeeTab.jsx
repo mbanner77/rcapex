@@ -339,9 +339,11 @@ function UnderRecorded({ items, expectedPerDay, range, thresholds, exceptions })
       const exception = exceptions?.get(mitarbeiter)
       const perDay = Number(exception?.partTimeHours ?? expectedPerDay) || 0
       const expected = days * perDay
-      arr.push({ mitarbeiter, ist, soll: expected, diff: expected - ist })
+      const fehl = Math.max(expected - ist, 0)
+      const plus = Math.max(ist - expected, 0)
+      arr.push({ mitarbeiter, ist, soll: expected, fehlstunden: fehl, ueberstunden: plus })
     }
-    arr.sort((a,b)=> (b.diff||0) - (a.diff||0))
+    arr.sort((a,b)=> (b.fehlstunden||0) - (a.fehlstunden||0))
     return arr
   }, [items, days, expectedPerDay, exceptions])
 
@@ -351,7 +353,8 @@ function UnderRecorded({ items, expectedPerDay, range, thresholds, exceptions })
     datasets: [
       { label: 'Soll', data: top.map(x=>x.soll), backgroundColor: 'rgba(148,163,184,0.5)', borderRadius: 6 },
       { label: 'Ist (geleistet)', data: top.map(x=>x.ist), backgroundColor: 'rgba(34,197,94,0.7)', borderRadius: 6 },
-      { label: 'Soll-Ist', data: top.map(x=>x.diff), backgroundColor: 'rgba(248,113,113,0.7)', borderRadius: 6 },
+      { label: 'Fehlstunden (Soll−Ist)', data: top.map(x=>x.fehlstunden), backgroundColor: 'rgba(248,113,113,0.75)', borderRadius: 6 },
+      { label: 'Überstunden (Ist−Soll)', data: top.map(x=>x.ueberstunden), backgroundColor: 'rgba(96,165,250,0.7)', borderRadius: 6 },
     ]
   }), [byEmp])
 
@@ -363,17 +366,18 @@ function UnderRecorded({ items, expectedPerDay, range, thresholds, exceptions })
       </div>
       <div className="table-wrap" style={{ marginTop: 8 }}>
         <table className="table">
-          <thead><tr><th>Mitarbeiter</th><th className="right">Soll (h)</th><th className="right">Ist (h)</th><th className="right">Soll−Ist (h)</th></tr></thead>
+          <thead><tr><th>Mitarbeiter</th><th className="right">Soll (h)</th><th className="right">Ist (h)</th><th className="right">Fehlstunden</th><th className="right">Überstunden</th></tr></thead>
           <tbody>
             {top.map((r)=> {
-              const diff = Number(r.diff||0)
-              const cls = diff >= (thresholds?.bad||Infinity) ? 'row-bad' : diff >= (thresholds?.warn||Infinity) ? 'row-warn' : ''
+              const fehl = Number(r.fehlstunden||0)
+              const cls = fehl >= (thresholds?.bad||Infinity) ? 'row-bad' : fehl >= (thresholds?.warn||Infinity) ? 'row-warn' : ''
               return (
               <tr key={r.mitarbeiter} className={cls}>
                 <td>{r.mitarbeiter}</td>
                 <td className="right">{fmt(r.soll)}</td>
                 <td className="right">{fmt(r.ist)}</td>
-                <td className="right">{fmt(r.diff)}</td>
+                <td className="right">{fmt(r.fehlstunden)}</td>
+                <td className="right">{fmt(r.ueberstunden)}</td>
               </tr>)
             })}
           </tbody>

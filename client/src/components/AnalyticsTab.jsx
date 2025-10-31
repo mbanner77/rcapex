@@ -29,12 +29,19 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, PointElement, LineElement, Title, Tooltip, Legend)
 
+const palette = {
+  text: 'var(--chart-text)',
+  textMuted: 'var(--chart-muted)',
+  grid: 'var(--chart-grid)',
+  chipFallback: 'var(--panel)' ,
+}
+
 const INSIGHT_TYPE_META = {
-  Trend: { background: 'rgba(37, 99, 235, 0.08)', color: '#1d4ed8' },
-  Risk: { background: 'rgba(239, 68, 68, 0.1)', color: '#b91c1c' },
-  Opportunity: { background: 'rgba(16, 185, 129, 0.12)', color: '#047857' },
-  Focus: { background: 'rgba(168, 85, 247, 0.12)', color: '#7c3aed' },
-  Info: { background: 'rgba(71, 85, 105, 0.12)', color: '#475569' },
+  Trend: { background: 'rgba(37, 99, 235, 0.12)', color: '#60a5fa' },
+  Risk: { background: 'rgba(239, 68, 68, 0.12)', color: '#f87171' },
+  Opportunity: { background: 'rgba(16, 185, 129, 0.14)', color: '#34d399' },
+  Focus: { background: 'rgba(168, 85, 247, 0.14)', color: '#c084fc' },
+  Info: { background: 'rgba(148, 163, 184, 0.14)', color: '#cbd5f5' },
 }
 
 function InsightChip({ label, value, tone }) {
@@ -219,13 +226,13 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const barOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: 'var(--text)' } }, title: { display: true, text: 'Top 15 Projekte', color: 'var(--text)', font: { weight: '600' } } },
+    plugins: { legend: { position: 'top', labels: { color: palette.text } }, title: { display: true, text: 'Top 15 Projekte', color: palette.text, font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
-    scales: { x: { stacked: false, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } }, y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } } },
+    scales: { x: { stacked: false, grid: { color: palette.grid }, ticks: { color: palette.textMuted } }, y: { beginAtZero: true, grid: { color: palette.grid }, ticks: { color: palette.textMuted } } },
   }
 
   const doughnutOptions = {
-    plugins: { legend: { position: 'right', labels: { color: 'var(--text)' } }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', color: 'var(--text)', font: { weight: '600' } } },
+    plugins: { legend: { position: 'right', labels: { color: palette.text } }, title: { display: true, text: 'Verhältnis Fakt/Geleistet (gesamt)', color: palette.text, font: { weight: '600' } } },
     maintainAspectRatio: false,
   }
 
@@ -260,9 +267,9 @@ export default function AnalyticsTab({ kundenAgg, stundenRaw, params }) {
   const lineOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: 'var(--text)' } }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, color: 'var(--text)', font: { weight: '600' } } },
+    plugins: { legend: { position: 'top', labels: { color: palette.text } }, title: { display: true, text: `Zeitverlauf (Top ${topN}) – ${metric === 'stunden_fakt' ? 'fakturiert' : 'geleistet'} · ${dimension}${project ? ` · Projekt ${project}` : ''}`, color: palette.text, font: { weight: '600' } } },
     interaction: { mode: 'nearest', intersect: false },
-    scales: { x: { stacked, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } }, y: { beginAtZero: true, stacked, grid: { color: 'rgba(148,163,184,0.25)' }, ticks: { color: 'var(--muted)' } } },
+    scales: { x: { stacked, grid: { color: palette.grid }, ticks: { color: palette.textMuted } }, y: { beginAtZero: true, stacked, grid: { color: palette.grid }, ticks: { color: palette.textMuted } } },
   }
 
   // Employees bar and Customer distribution donut
