@@ -39,7 +39,7 @@ export default function Modal({
   bodyClassName = '',
 }) {
   const titleId = useId()
-  const descriptionId = subtitle ? useId() : undefined
+  const descriptionId = useId()
   const overlayRef = useRef(null)
   const containerRef = useRef(null)
   const previousFocused = useRef(null)
@@ -124,7 +124,7 @@ export default function Modal({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      aria-describedby={descriptionId}
+      aria-describedby={subtitle ? descriptionId : undefined}
       onMouseDown={handleOverlayMouseDown}
     >
       <div
